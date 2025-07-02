@@ -44,7 +44,7 @@ def debug_routes():
 app.secret_key = os.environ['SECRET_KEY']
 
 #Configuration for the Postgre Database Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres@localhost/ecommerce_bd'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:password@localhost:5432/ecommerce_bd'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Enable cookie sharing across origins
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
@@ -308,6 +308,10 @@ def addtoCart():
 
         product_id = data.get("product_id")
         quantity = data.get("quantity", 1)
+        session_id = session.get('session_id')
+
+        if not session_id or session_id == "":
+            session_id = str(uuid.uuid4())
 
         if not product_id:
             return jsonify({"message": "Product ID is required"}), 400
@@ -319,7 +323,7 @@ def addtoCart():
         if quantity > product.stock:
             return jsonify({"message": "Not enough stock"}), 400
 
-        session_id = get_or_create_session_id()
+        # session_id = get_or_create_session_id()
 
         cart_item = Cart.query.filter_by(session_id=session_id, product_id=product_id).first()
         if cart_item:
@@ -333,21 +337,21 @@ def addtoCart():
         product.stock -= quantity
         db.session.commit()
 
-        return jsonify({"message": "Product added to cart", "success": True}), 200
+        return jsonify({"message": "Product added to cart", "success": True, "session_id": session_id}), 200
 
     except Exception as e:
         print("Error in addto_cart:", str(e))
         return jsonify({"message": "Server error", "error": str(e)}), 500
 
 
-@app.route("/view_cart", methods=["GET", "OPTIONS"])
-def view_cart():
-    print("Session ID:", session.get('session_id'))
+@app.route("/view_cart/<id>", methods=["GET", "OPTIONS"])
+def view_cart(id):
     if request.method == "OPTIONS":
         return jsonify({}), 200  # CORS preflight response  
 
     try:
-        session_id = get_or_create_session_id()
+        print("view_cart called with id:", id)
+        session_id = id
         cart_items = Cart.query.filter_by(session_id=session_id).all()
 
         cart_data = [item.to_dict() for item in cart_items]
@@ -534,5 +538,9 @@ def debug_images():
 
 
 if __name__ == "__main__":
+    # Initialize the database
+    with app.app_context():
+        db.create_all()
+        print("Database initialized")
     app.run(debug=True, port=5002)
 

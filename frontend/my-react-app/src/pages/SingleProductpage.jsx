@@ -13,6 +13,19 @@ const SingleProductpage = () => {
   const [message, setMessage] = useState('');
   const [cartRefreshKey, setCartRefreshKey] = useState(0); // 👈 trigger reload in CartDrawer
 
+  function getSessionId() {
+    const sessionId = localStorage.getItem('session_id');
+    if (sessionId) {
+      return sessionId;
+    } else {
+      return ""
+    }
+  }
+
+  function setSessionId(sessionId) {
+    localStorage.setItem('session_id', sessionId);
+  }
+
   useEffect(() => {
     fetch(`http://localhost:5002/products/${id}`)
       .then((response) => {
@@ -79,7 +92,8 @@ const SingleProductpage = () => {
       credentials: 'include',
       body: JSON.stringify({
         product_id: product.id,
-        quantity: count
+        quantity: count,
+        session_id: getSessionId() // 👈 Use session ID from localStorage
       })
     })
       .then(res => {
@@ -93,6 +107,7 @@ const SingleProductpage = () => {
       .then(data => {
         console.log('Server response:', data);
         setMessage(data.message);
+        setSessionId(data.session_id); // 👈 Update session ID in localStorage
         setCartRefreshKey(prev => prev + 1);  // ✅ Refresh cart drawer
         setIsCartOpen(true);                 // ✅ Open cart drawer after success
       })

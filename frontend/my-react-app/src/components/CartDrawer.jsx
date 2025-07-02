@@ -3,9 +3,19 @@ import React, { useEffect, useState } from 'react';
 const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
   const [cartItems, setCartItems] = useState([]);
 
+  function getSessionId() {
+    const sessionId = localStorage.getItem('session_id');
+    if (sessionId) {
+      return sessionId;
+    } else {
+      return "";
+    }
+  }
+
   useEffect(() => {
     if (isOpen) {
-      fetch("http://127.0.0.1:5002/view_cart", {
+      console.log("Fetching cart data for session ID:", getSessionId());
+      fetch(`http://127.0.0.1:5002/view_cart/${getSessionId()}`, {
         method: "GET",
         credentials: "include",
       })

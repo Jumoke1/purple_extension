@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {Link} from 'react-router-dom'
-import { color } from 'chart.js/helpers';
+// import { color } from 'chart.js/helpers';
 
 
 const Collections = () => {
