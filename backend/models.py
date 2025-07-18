@@ -6,6 +6,8 @@ from sqlalchemy.orm import relationship
 import  bcrypt
 from sqlalchemy.dialects.postgresql import UUID
 import uuid 
+from sqlalchemy import JSON
+
 
 db = SQLAlchemy()
 
@@ -40,14 +42,35 @@ class Order(db.Model):
     status  = Column(String, default= "Processing")
     created_at = Column(DateTime, default=datetime.utcnow)
     paid = Column(Boolean, default=False)
+    items= Column(JSON, nullable=False)
+
+    fullname = Column(String )
+    email = Column(String)
+    address = Column(String)
+    phone = Column(String)
+
+    # Foreign key to User table
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    # Relationship to access user details from an order
+    user = relationship('User', backref='orders')
+    items = db.relationship('OrderItem', backref='order', lazy=True)
+
+    def to_dict(self):
+        return {"id": self.id, "cart_id": self.cart_id, 
+                "amount": self.amount,
+                "reference": self.reference, "status":self.status, "created_at": self.created_at, "paid":self.paid,
+                "fullname": self.fullname, "email": self.email, "address": self.address, "phone": self.phone,
+                "user_id": self.user_id, "user_email": 
+                self.user.email if self.user else None
+                }
+
 
 class OrderItem(db.Model):
     __tablename__ = "order_items"
 
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey("orders.id"))
-    product_id = Column(Integer, ForeignKey('products.id'))
-
     quantity = Column(Integer)
     price = Column(Float)
 

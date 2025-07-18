@@ -1,17 +1,20 @@
-from flask import Flask, jsonify, request, session, redirect
+from flask import Flask, jsonify, request, session, redirect, abort
 from flask_session import Session 
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy 
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
 from flask_migrate import Migrate
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import uuid
 import secrets
-from flask import request
+import requests
 import bcrypt
+import json
 
 
-from models import db, Product, User,  Order, Cart
+
+from models import db, Product, User,  Order, Cart, OrderItem
 from dotenv import load_dotenv
 import os
 
@@ -308,10 +311,12 @@ def addtoCart():
 
         product_id = data.get("product_id")
         quantity = data.get("quantity", 1)
-        session_id = session.get('session_id')
+        session_id = data.get("session_id")
 
-        if not session_id or session_id == "":
+        
+        if not session_id:
             session_id = str(uuid.uuid4())
+            session[session_id]= session_id
 
         if not product_id:
             return jsonify({"message": "Product ID is required"}), 400
@@ -381,33 +386,58 @@ def delete_itemInCart(cart_id, product_id):
 
     return jsonify({"message":"Item succesfully removed from the cart"}), 200
 
-@app.route("/checkout/<int:cart_id>", methods={"POST"})
+@app.route("/checkout/<int:cart_id>", methods=["POST"])
 def checkout(cart_id):
-     
-     cart_item = db.session.query(Cart).filter_by(cart_id=cart_id).all()
+    data = request.get_json()
 
-     data = request.get_json()
-     quantity = data.get("quantity")
-     
-     if not cart_item:
-        return jsonify({"message":"Cart is empty"})
-     
-     total_amount = 0
-         
-     for cart in cart_item:
-         product = db.sesions.query(Product).filter_by(id=cart.production_id).first()
-         if not product:
-            return jsonify({"message": "product with id {cart.product_id} not found"}), 404
-         
-         if cart.quantity > product.stock:
-             return jsonify({"message": f"Not enough stock for {product.name}"}),400 
-     
-         total_amount = product.price * cart.quantity
+    name = data.get('name')
+    phone = data.get('phone')
+    address = data.get('address')
+    email = data.get('email')
 
-     return jsonify({
-      "message": "Ready for checkout",
-      "total_amount": total_amount,
-      "cart_id": cart_id}), 200
+    if not all([name, phone, address, email]):
+        return jsonify({'message': 'Missing delivery information'}), 400
+
+    cart_items = db.session.query(Cart).filter_by(cart_id=cart_id).all()
+    if not cart_items:
+        return jsonify({"message": "Cart is empty"}), 404
+
+    total_amount = 0
+
+    # Create and flush the order first to get its ID
+    new_order = Order(name=name, phone=phone, address=address, email=email)
+    db.session.add(new_order)
+    db.session.flush()
+
+    for cart in cart_items:
+        product = db.session.query(Product).filter_by(id=cart.product_id).first()
+
+        if not product:
+            return jsonify({"message": f"Product with id {cart.product_id} not found"}), 404
+
+        if cart.quantity > product.stock:
+            return jsonify({"message": f"Not enough stock for {product.product_name}"}), 400
+
+        total_amount += product.product_price * cart.quantity
+
+        order_item = OrderItem(
+            order_id=new_order.id,
+            product_id=cart.product_id,
+            quantity=cart.quantity,
+            price=product.product_price
+        )
+        db.session.add(order_item)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Order placed successfully",
+        "total_amount": total_amount,
+        "cart_id": cart_id,
+        "order_id": new_order.id
+    }), 200
+
+         
  
     
     #login for admin 
@@ -469,7 +499,7 @@ def payment():
     payload = {
     "email" : email,
     'amount' : int(amount) *100,
-    'callback_url': 'http://localhost:5173/verifyPayment',
+    'callback_url': 'http://localhost:5173/success',
 }
 
     response = requests.post(PAYSTACK_INIT_URL, json=payload,  headers=headers)
@@ -491,41 +521,128 @@ def payment():
     db.session.commit()
     return jsonify({'authorization_url': auth_url}),201
 
-@app.route('/verifyPayment', methods=['GET'])
-def verifyPayment():
+
+@app.route('/admin/statistics', methods=['GET'])
+def get_statistic():
+    total_orders = db.session.query(func.count(Order.id)).scalar()
+    total_revenue = db.session.query(func.sum(OrderItem.price * OrderItem.quantity)).scalar()
+    total_customers = db.session.query(func.count(func.distinct(Order.user_id))).scalar()
+    total_product = db.session.query(func.sum(Product.stock)).scalar() or 0
+
+    return jsonify({
+        "total_orders": total_orders,
+        "total_revenue": total_revenue,
+        "total_customers": total_customers,
+        "total_product": total_product,
+    }), 200
+
+@app.route('/create_order', methods=['POST'])
+def create_order():
     data = request.get_json()
-
-    reference = data.get('reference')
-
-    if not reference: 
-        return jsonify({"error": "Bad request"}), 404
+    print(data.get('fullname'))
+    try:
+        new_order = Order(
+            fullname=data.get('fullname'),
+            email= data.get('email'),
+            phone = data.get('phone'),
+            address=data.get('address'),
+            items= data.get('items'),
+            amount=data.get('amount'),
+            status=data.get('status', 'Processing'),
+            created_at=datetime.utcnow(),
+        )
+        print(new_order.fullname)
+        db.session.add(new_order)
+        db.session.commit()
+        return jsonify({'order_id': new_order.id}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     
-    order =  Order.query.filter_by(reference=reference).first()
+@app.route('/orders', methods=['GET'])  
+def get_all_orders():
+    try:
+        orders = Order.query.all()
+        result = []
+        last_order =orders[-1]
+        print(last_order.fullname)
+        for order in orders:
+            result.append({
+                'id': order.id,
+                'fullname': order.fullname,
+                'email': order.email,
+                'phone': order.phone,
+                'address': order.address,
+                'items': [item.to_dict() for item in order.items], 
+                'total_amount': order.amount,
+                'status': order.status,
+                'created_at': order.created_at.isoformat(),
+            })
+       
+       
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    if order is None: 
-        abort(404, description="order not found")
-    
-    if order.paid:
-        return redirect('/success')
-    
-    verify_url = f"https://api.paystack.co/transaction/verify/{reference}"
-    response = requests.get(verify_url, headers={ 'Authorization': f'Bearer {PAYSTACK_SECRET_KEY}' })
 
-    if response.status_code != 200:
-        return jsonify({"error": "verification error "}), 
 
-    data = response.json().get('data', {})
-    status = data.get('status')
+@app.route('/orders/<int:order_id>', methods=['GET'])
+def get_singleorder(order_id):
+    order = Order.query.get(order_id)
+    if not order:
+        return jsonify({'error': 'Order not found'}), 404
 
-    if status == 'success':
-        order.paid = True
-        order.status ="paid"
-        session.commit()
-        return redirect('/success')
-    else: 
-        order.status ='Failed'
-        session.commit()
-        return redirect('/retry')
+    return jsonify({
+        'id': order.id,
+        'fullname': order.fullname,
+        'email': order.email,
+        'phone': order.phone,
+        'address': order.address,
+        'items': json.loads(order.items),  # convert JSON string back to Python list
+        'total_amount': order.amount,
+        'status': order.status,
+        'created_at': order.created_at.isoformat(),
+    })
+
+
+@app.route('/recent_orders', methods=['GET'])
+def recent_orders():
+        status = request.args.get('status')
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+
+        query = db.session.query(Order).order_by(Order.created_at.desc())
+
+        if status:
+            query = query.filter(Order.status == status)
+
+        # pagination
+        query = query.offset((page - 1) * per_page).limit(per_page)
+
+        orders = query.all()
+
+        result = [{
+            "id": order.id,
+            "amount": order.amount,
+            "status": order.status,
+            "paid": order.paid,
+            "reference": order.reference,
+            "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_id": order.user_id,
+            "user_email": order.user.email if order.user else None,
+            "fullname": order.fullname,
+            "email": order.email,
+            "address": order.address,
+            "items": json.loads(order.items),
+
+            "phone": order.phone,
+            } for order in orders]
+
+        return jsonify({
+            "page": page,
+            "per_page": per_page,
+            "orders": result
+        })   
+
 
 @app.route("/debug/images")
 def debug_images():
