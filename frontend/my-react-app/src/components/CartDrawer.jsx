@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
   const [cartItems, setCartItems] = useState([]);
+  const navigate = useNavigate();
+
+  const handleCheckout = () => {
+    navigate('/checkout', { state: {totalAmount: totalPrice}})
+  }
 
   function getSessionId() {
     const sessionId = localStorage.getItem('session_id');
@@ -54,7 +60,7 @@ const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
           <div key={product.id} className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <img
-                src={`http://127.0.0.1:5002${product.image_url}`}
+                src={`http://127.0.0.1:5002/${product.image_url}`}
                 alt={product.product_name}
                 className="w-16 h-16 object-cover rounded"
               />
@@ -78,7 +84,8 @@ const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
             <span>Total:</span>
             <span>₦{totalPrice.toFixed(2)}</span>
           </div>
-          <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">
+          <button onClick={handleCheckout}
+           className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded">
             Checkout
           </button>
         </div>

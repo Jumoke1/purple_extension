@@ -1,6 +1,7 @@
 import React from 'react';
 import "react-responsive-carousel/lib/styles/carousel.min.css"; // Carousel styling
 import { Carousel } from 'react-responsive-carousel'; // Carousel component
+import { Link } from 'react-router-dom';
 
 
 const About = () => {
@@ -34,13 +35,13 @@ const About = () => {
       <div className="max-w-5xl mx-auto px-4 py-12">
         <h1 className="text-4xl font-bold text-purple-700 mb-4">About Purple Extension</h1>
         <p className="text-lg mb-6">
-          At <strong>Purple Extension</strong>, we believe beauty starts with confidence—and great hair is a big part of that.
-          We're a proudly female-led brand helping women own their style with effortless, elegant, and protective hair solutions.
+          At <strong>Purple Extension</strong>, we believe beauty starts with confidence and great hair is a big part of that.
+          We're a proudly female led brand helping women own their style with effortless, elegant, and protective hair solutions.
         </p>
 
         <h2 className="text-2xl font-semibold mt-10 mb-3 text-gray-900">✨ What We Specialize In</h2>
         <ul className="list-disc pl-6 space-y-2 text-lg">
-          <li><strong>Ponytail Extensions:</strong> Sleek, curly, or kinky — switch up your look in seconds with our easy-to-wear ponytails.</li>
+          <li><strong>Ponytail Extensions:</strong> Sleek, curly, or kinky, switch up your look in seconds with our easy to wear ponytails.</li>
           <li><strong>Braided Wigs:</strong> Flawless braided styles like box braids, twists, and cornrows without the salon hours.</li>
         </ul>
 
@@ -60,7 +61,7 @@ const About = () => {
 
         <h2 className="text-2xl font-semibold mt-10 mb-3 text-gray-900">💌 Join the Purple Family</h2>
         <p className="text-lg">
-          Thousands of women trust Purple Extension to transform their look. Shop now. Slay effortlessly. Stay Purple.
+          Thousands of women trust Purple Extension to transform their look <Link to='/collections'  className="text-purple-700 underline hover:text-purple-900 font-semibold">Shop now </Link>Slay effortlessly. Stay Purple.
         </p>
       </div>
     </div>

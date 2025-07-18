@@ -21,6 +21,8 @@ import AddnewProduct from './pages/AddnewProduct'
 import ProductManagement from './pages/productManagement'
 import EditProduct from './pages/EditProduct'
 import AboutUs from './pages/AboutUs'
+import SingleorderDetails from './pages/SingleorderDetails'
+import NewOrder from './pages/NewOrders'
 import CartDrawer from './components/CartDrawer'
 
 
@@ -61,6 +63,9 @@ function App() {
 					<Route path='/singleproductpage/:id' element={<SingleProductpage/>} />
 					<Route path='/contactus' element={<ContactUs/>} />
 					<Route path='/aboutus' element={<AboutUs/>} />
+					<Route path='/singleorderdetails/:orderId' element={<SingleorderDetails/>} />
+					<Route path='/neworder' element={<NewOrder/>} />
+				
           </Route>
 			</Routes>
 					 <ToastContainer />

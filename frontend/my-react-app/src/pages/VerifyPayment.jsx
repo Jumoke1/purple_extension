@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 const VerifyPayment = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const reference = searchParams.get('reference');  // typo fix: 'refrence' → 'reference'
+  const reference = searchParams.get('reference');  
 
   useEffect(() => {
     if (!reference) {
@@ -13,9 +13,9 @@ const VerifyPayment = () => {
     }
     alert('verifying payment...');
 
-    fetch('http://localhost:5002/VerifyPayment', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
+    fetch('http://localhost:5002/verifyPayment', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reference }),
     })
       .then(res => res.json())

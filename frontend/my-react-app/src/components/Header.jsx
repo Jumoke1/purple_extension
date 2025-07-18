@@ -1,11 +1,16 @@
 import React from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { FiSearch, FiUser, FiShoppingCart } from 'react-icons/fi';
 import logo from '../assets/logo1.jpg'
+import CartDrawer from "./CartDrawer";
 
 
 
 const Header = () => {
+
+const [isCartOpen, setIsCartOpen] = useState(false)
+
     return (
         <header className="w-full bg=white  p-4 shadow">
         <div className="flex justify-between items-center max-w-screen-xl mx-auto">
@@ -27,9 +32,12 @@ const Header = () => {
         <div className="flex items-center space-x-4">
         <FiSearch className="text-purple w-6 h-6 cursor-pointer hover:text-[#e46bbf]"></FiSearch>
         <FiUser className="text-purple w-6 h-6 cursor-pointer hover:text-[#e46bbf]"></FiUser>
-        <FiShoppingCart className="text-purple w-6 h-6 cursor-pointer hover:text-[#e46bbf]"></FiShoppingCart>
+        <FiShoppingCart 
+        onClick={ () => setIsCartOpen(true)}
+        className="text-purple w-6 h-6 cursor-pointer hover:text-[#e46bbf]"></FiShoppingCart>
         </div>
         </div>
+      <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)}/>
         </header>
     )
 }

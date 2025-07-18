@@ -103,11 +103,11 @@ const  AddnewProduct = () => {
 
             {error && <p className="text-red-500 mb-4">{error}</p>}
 
-            <div className=' w-full bg-white rounded-lg shadow p-6 max-w-2xl'>
+            <div className=' w-full bg-white rounded-lg shadow p-6 max-w-2xl'>11
                 
                 <form onSubmit={handleSubmit} action=""className=''>
                     <h3 className="text-purple-400 font-semibold text-lg mb-4">Basic Information</h3>
-
+                        
                     <div>
                     <input type="text"
                      name="product_name"
