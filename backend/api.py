@@ -1,22 +1,26 @@
-from flask import Flask, jsonify, request, session, redirect, abort
+from flask import Flask, jsonify, current_app, request, session, redirect, abort
 from flask_session import Session 
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
-from flask_migrate import Migrate
+from flask_migrate import Migrate, upgrade
 from datetime import datetime
 from werkzeug.utils import secure_filename
-import uuid
+from flask_mail import Mail, Message
+from uuid import UUID
 import secrets
 import requests
 import bcrypt
 import json
-
-
-
-from models import db, Product, User,  Order, Cart, OrderItem
+import re 
+import traceback
+import hashlib
+import hmac
+from flask_mail import Mail, Message
+from models import db, Product, User,  Order,  OrderItem, Payment, Complaint, ProductColor, ProductLength, Cart, CartItem
 from dotenv import load_dotenv
 import os
+import uuid
 
 load_dotenv()
 
@@ -34,8 +38,28 @@ CORS(
     },
 )
 
+# Flask-Mail configuration using environment variables
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = ('Your Shop Name', os.getenv('MAIL_USERNAME'))
 
-# Handle OPTIONS requests for CORS preflight
+mail = Mail(app)
+#Function to send order emails
+
+def sendorder_email(recipient, subject, body):
+    """
+    recipient: customer's email
+    subject: email subject
+    body: email content
+    """
+    msg = Message(subject, recipients=[recipient])
+    msg.body = body
+    mail.send(msg)
+
 
     
 #debugging helper  
@@ -57,6 +81,10 @@ PAYSTACK_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
+if not PAYSTACK_KEY:
+    print("⚠️ Warning: PAYSTACK_SECRET_KEY not found in environment variables")
+else:
+    print("✅ Paystack secret key loaded successfully")
 
 
 #initilize flask-migrate 
@@ -116,17 +144,24 @@ def singleProduct(id):
 @app.route("/add_product", methods=["POST"])
 def addProduct():
     try:
+        print("Incoming request to: /add_product")
+        print("Form data:", request.form)
+        print("Files:", request.files)
+    
         product_name = request.form.get("product_name")
         product_price = float(request.form.get("product_price"))
         product_description = request.form.get("product_description")
         stock = int(request.form.get("stock"))
-        length = request.form.get("length")
-        color = request.form.get("color")
+        colors = request.form.getlist("color")  # Accepts multiple colors
+        lengths = request.form.getlist("length") 
         status = request.form.get("status")
         category = request.form.get("category")
+        best_seller = request.form.get("best_seller") == 'true'
+        new_in_stock = request.form.get("new_in_stock") == 'true'
         image_url = request.files.get('image')
+
         
-        if not all([product_name, product_price, product_description, stock, length, color, status, category, image_url]):
+        if not all([product_name, product_price, product_description, stock, lengths, colors, status, category, image_url]):
             return jsonify({'error': 'Please provide all required fields'}), 400
 
         image_filename = secure_filename(image_url.filename)
@@ -141,47 +176,54 @@ def addProduct():
             product_price=product_price, 
             product_description=product_description, 
             stock=stock, 
-            length=length, 
-            color=color,
             status=status,
             category= category, 
+            best_seller = best_seller,
+            new_in_stock = new_in_stock,
             image_url=image_url
 )
         db.session.add(product)
         db.session.commit()
 
+        for color in colors:
+            db.session.add(ProductColor(color=color, product_id=product.id))
+
+        
+        for length in lengths:
+            db.session.add(ProductLength(length=length, product_id=product.id))
+
+        db.session.commit()
+
         print("product_name:", request.form.get("product_name"))
+
+        
 
         return jsonify(product.to_dict()), 201
         
 
     except Exception as e:
         db.session.rollback()
+        print("ERROR adding product:")
+        traceback.print_exc()
         return jsonify({'error': 'An error occurred during adding' }), 500
     
     
-
-
-@app.route("/edit_product/<int:id>", methods=["PUT", "OPTIONS"])
-def editProduct(id):
-    product = Product.query.get_or_404(id)
-    data = request.get_json()
-
-    product.product_name = data.get('product_name', product.product_name)
-    product.product_price = data.get('product_price', product.product_price)
-    product.color = data.get('color', product.color)
-    product.length = data.get('category', product.length)
-    product.product_descripton = data.get('product_description', product.product_description)
-    product.stock = data.get('stock', product.stock)
-    product.image_url = data.get('image_url', product.image_url)
+@app.route("/best_seller", methods=["GET"])
+def best_seller():
+    try:
+        best_sellers = Product.query.filter_by(best_seller=True).all()
+        return jsonify([product.to_dict() for product in best_sellers]), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 
-    db.session.commit()
+@app.route('/new_stock')
+def get_new_stock():
+    new_products = Product.query.filter_by(new_in_stock=True).all()
+    return jsonify([product.to_dict() for product in new_products])
 
-    return jsonify({
-        "message": "product updated sucessfully",
-        "product":product.to_dict()
-}),200
+
+
 
 #relatedproduct 
 @app.route("/related_products/<int:id>/", methods=["GET"]) 
@@ -217,14 +259,16 @@ def delete_all_products():
  
 
  #delete  single product
-@app.route("/delete_product/<int:id>", methods = ["DELETE", "OPTIONS"])
-def delete_post(id):
+@app.route("/delete_product/<int:id>", methods = ["DELETE"])
+def delete_product(id):
     
     products = db.session.query(Product).filter_by(id=id).first()
     if not products:
         return jsonify({"message": "product not found"}), 400
-        
-        
+    
+    db.session.query(CartItem).filter_by(product_id=id).delete()
+
+     
     db.session.delete(products)
     db.session.commit()
     return jsonify ({"message": "Product deleted succesfully"}), 200
@@ -254,8 +298,8 @@ def update_product(id):
     product_price = request.form.get("product_price")  
     product_description = request.form.get("product_description")  
     stock = request.form.get("stock")  
-    color = request.form.get("color")
-    length = request.form.get("length")
+    colors = request.form.getlist("color")  # multiple colors
+    lengths = request.form.getlist("length")
     category= request.form.get("category")
 
 
@@ -274,12 +318,22 @@ def update_product(id):
         product.product_description = product_description  
     if stock is not None:
         product.stock = stock 
-    if length is not None:
-        product.length = length
-    if color is not None:
-        product.color = color
+   
     if category is not None:
         product.category = category
+
+    # Update colors — clear old ones first
+    if colors:
+        ProductColor.query.filter_by(product_id=product.id).delete()
+        for color in colors:
+            db.session.add(ProductColor(color=color, product_id=product.id))
+
+    #Update lengths — clear old ones first
+    if lengths:
+        ProductLength.query.filter_by(product_id=product.id).delete()
+        for length in lengths:
+            db.session.add(ProductLength(length=length, product_id=product.id))
+
 
     print("product_name:", request.form.get("product_name"))
 
@@ -371,20 +425,38 @@ def view_cart(id):
             "success": False,
             "error": str(e)
         }), 500
-
-
-
-@app.route("/delete_Itemincart/<int:cart_id>/<int:product_id>", methods=["DELETE", "OPTIONS"])
-def delete_itemInCart(cart_id, product_id):
-
-    cart_item = db.session.query(Cart).filter_by(cart_id=cart_id, product_id=product_id).first()
-    if not cart_item:
-        return jsonify({"message":"item not found"}), 404
     
-    db.session.delete(cart_item)
-    db.session.commit()
 
-    return jsonify({"message":"Item succesfully removed from the cart"}), 200
+
+@app.route("/test_route_working")
+def test_route():
+    return "Routes are loading", 200
+
+@app.route("/delete_Itemincart/<uuid:cart_id>/<int:product_id>", methods=["DELETE"])
+def delete_item_in_cart(cart_id, product_id):
+    print(f"DELETE request received for cart_id: {cart_id}, product_id: {product_id}")
+    
+    try:
+        
+        # Verify the item exists
+        cart_item = Cart.query.filter_by(
+            cart_id=str(cart_id),
+            product_id=product_id
+        ).first()
+        
+        if not cart_item:
+            return jsonify({"error": "Item not found"}), 404
+            
+        # Delete the item
+        db.session.delete(cart_item)
+        db.session.commit()
+        
+        return jsonify({"message": "Item deleted successfully"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting item: {str(e)}")
+        return jsonify({"error": "Server error"}), 500
 
 @app.route("/checkout/<int:cart_id>", methods=["POST"])
 def checkout(cart_id):
@@ -404,11 +476,13 @@ def checkout(cart_id):
 
     total_amount = 0
 
+    order_summary = ""
     # Create and flush the order first to get its ID
     new_order = Order(name=name, phone=phone, address=address, email=email)
     db.session.add(new_order)
     db.session.flush()
 
+    
     for cart in cart_items:
         product = db.session.query(Product).filter_by(id=cart.product_id).first()
 
@@ -428,8 +502,31 @@ def checkout(cart_id):
         )
         db.session.add(order_item)
 
-    db.session.commit()
+        # Add product details to order summary for the email
+        order_summary += f"{product.product_name} x {cart.quantity} = {product.product_price * cart.quantity}\n"
+        
+        for item in cart_items:
+            db.session.delete(item)
 
+    db.session.commit()
+    try:
+        email_body = f"""
+        Hi {name},
+
+        Thank you for your order! Here are your order details:
+
+        {order_summary}
+
+        Total Amount: {total_amount}
+
+        We will notify you once your order is shipped.
+        """
+        sendorder_email(recipient=email, subject="Order Confirmation", body=email_body)
+    except Exception as e:
+        print("Error sending email:", e)
+
+
+    traceback.print_exc()
     return jsonify({
         "message": "Order placed successfully",
         "total_amount": total_amount,
@@ -460,6 +557,10 @@ def login():
 def signup():
     
     data = request.get_json()
+    print("Received signup data:", data)
+    print("Keys received:", data.keys())
+    print("Full data received:", data)
+
     if not data.get ('firstname') or  not data.get ('lastname') or not data.get('email')or not data.get('password') or not data.get('confirm_password'):
         return jsonify({"message" : "kindly provide required fields!"}), 400
     
@@ -475,173 +576,589 @@ def signup():
     db.session.add(user)
     db.session.commit()
     return  jsonify(user.to_dict()),201
-
-
-
-
-    
-    
+ 
 @app.route('/payment', methods=['POST'])
 def payment():
-    data = request.get_json()
+    try:
+        # 1. Verify Paystack is configured
+        if not PAYSTACK_KEY:
+            current_app.logger.error("Payment service not configured")
+            return jsonify({
+                "status": "error",
+                "message": "Payment service is currently unavailable",
+                "solution": "Please try again later or contact support"
+            }), 500
 
-    email = data.get('email')
-    amount  = data.get('amount')
+        # 2. Get and validate request data
+        data = request.get_json()
+        current_app.logger.info(f"Incoming payment request: {data}")
 
-    if not email or not amount:
-        return jsonify({'error': 'Email and amount are required'}),400
-    
-    headers = {
-        'Authorization' : f'Bearer {PAYSTACK_KEY}',
-        'Content-Type' : 'application/json'
-    }
+        # Validate required fields
+        required_fields = ['email', 'amount', 'order_id']
+        if missing := [field for field in required_fields if field not in data]:
+            return jsonify({
+                "status": "error",
+                "message": f"Missing required fields: {', '.join(missing)}"
+            }), 400
 
-    payload = {
-    "email" : email,
-    'amount' : int(amount) *100,
-    'callback_url': 'http://localhost:5173/success',
-}
+        # 3. Prepare payment data
+        try:
+            amount = int(float(data['amount']) * 100)  # Convert to kobo
+            if amount <= 0:
+                raise ValueError("Amount must be positive")
 
-    response = requests.post(PAYSTACK_INIT_URL, json=payload,  headers=headers)
-    if response.status_code !=  200:
-        return jsonify({'error': 'paystack initialization failed '}),500
-    
-    response_data = response.json()
-    print(response_data.get("data"))
-    auth_url = response_data.get("data").get("authorization_url")
-    reference = response_data['data']['reference']
-     
-    orders =Order(
-        reference =  reference,
-       #authorization_url = auth_url,
-        amount = amount,
-        status = "pending" 
-    )
-    db.session.add(orders)
-    db.session.commit()
-    return jsonify({'authorization_url': auth_url}),201
+            payment_data = {
+                "email": data['email'],
+                "amount": amount,
+                "callback_url": "http://localhost:5173/success",
+                "metadata": {
+                    "order_id": data['order_id'],
+                    "custom_fields": [
+                        {
+                            "display_name": "Order Reference",
+                            "variable_name": "order_ref",
+                            "value": f"ORDER-{data['order_id']}"
+                        }
+                    ]
+                }
+            }
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Invalid amount: {str(e)}"
+            }), 400
+
+        # 4. Initialize payment with Paystack
+        headers = {
+            "Authorization": f"Bearer {PAYSTACK_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(
+                PAYSTACK_INIT_URL,
+                headers=headers,
+                json=payment_data,
+                timeout=10
+            )
+
+            # 5. Handle Paystack response
+            response_data = response.json()
+            
+            if response.status_code != 200:
+                current_app.logger.error(f"Paystack API error: {response_data}")
+                return jsonify({
+                    "status": "error",
+                    "message": response_data.get('message', 'Payment failed'),
+                    "details": response_data
+                }), 400
+
+            if not response_data.get('status') or not response_data.get('data', {}).get('authorization_url'):
+                current_app.logger.error("Invalid Paystack response format")
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid response from payment gateway"
+                }), 500
+
+            # 6. Return success response
+            return jsonify({
+                "status": "success",
+                "message": "Payment initialized",
+                "authorization_url": response_data['data']['authorization_url'],
+                "reference": response_data['data']['reference']
+            })
+
+        except requests.exceptions.RequestException as e:
+            current_app.logger.error(f"Paystack connection error: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": "Could not connect to payment service"
+            }), 503
+
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": "An unexpected error occurred"
+        }), 500
+
+# @app.route('/payment', methods=['POST'])
+# def payment():
+#     data = request.get_json()
+#     print("Received payment data:", data)
+
+#     email = data.get('email')
+#     amount = data.get('amount')
+#     order_id = data.get('order_id')
+
+#     # 1) Basic validation
+#     if not email or not amount or not order_id:
+#         return jsonify({'error': 'Email, amount, and order_id are required'}), 400
+
+#     # 2) Parse order_id as integer
+#     try:
+#         order_int = int(order_id)
+#     except ValueError:
+#         return jsonify({'error': 'Invalid order_id format'}), 400
+
+#     # 3) Load the actual Order from DB
+#     order = Order.query.get(order_int)
+#     if not order:
+#         return jsonify({'error': 'Order not found'}), 404
+
+#     # 4) Talk to Paystack
+#     url = 'https://api.paystack.co/transaction/initialize'
+#     headers = {
+#         'Authorization': 'Bearer YOUR_PAYSTACK_SECRET_KEY',
+#         'Content-Type': 'application/json',
+#     }
+#     payload = {
+#         'email': email,
+#         'amount': int(amount) * 100,  # in kobo
+#     }
+
+#     try:
+#         resp = requests.post(url, json=payload, headers=headers)
+#         result = resp.json()
+#         if not result.get('status'):
+#             return jsonify({'error': 'Payment initialization failed'}), 400
+
+#         reference = result['data']['reference']
+#         auth_url  = result['data']['authorization_url']
+
+#         # 5) Save payment in DB
+#         try:
+#             pay = Payment(
+#                 order_id=order.id,
+#                 reference=reference,
+#                 amount=amount,
+#                 paid=True,
+#                 paid_at=datetime.datetime.utcnow()
+#             )
+#             db.session.add(pay)
+#             order.status = 'paid'
+#             db.session.commit()
+#             return jsonify({'authorization_url': auth_url}), 201
+
+#         except Exception:
+#             traceback.print_exc()
+#             db.session.rollback()
+#             return jsonify({'error': 'Error saving payment'}), 500
+
+#     except requests.RequestException:
+#         traceback.print_exc()
+#         return jsonify({'error': 'Payment gateway communication failed'}), 502
 
 
 @app.route('/admin/statistics', methods=['GET'])
 def get_statistic():
     total_orders = db.session.query(func.count(Order.id)).scalar()
-    total_revenue = db.session.query(func.sum(OrderItem.price * OrderItem.quantity)).scalar()
-    total_customers = db.session.query(func.count(func.distinct(Order.user_id))).scalar()
+    total_revenue = db.session.query(func.sum(OrderItem.price * OrderItem.quantity)).join(Order).filter(Order.paid == True).scalar()
+    total_customers = db.session.query(func.count(func.distinct(Order.email))).scalar()
     total_product = db.session.query(func.sum(Product.stock)).scalar() or 0
 
     return jsonify({
         "total_orders": total_orders,
         "total_revenue": total_revenue,
         "total_customers": total_customers,
-        "total_product": total_product,
+        "total_product":total_product,
     }), 200
 
 @app.route('/create_order', methods=['POST'])
 def create_order():
-    data = request.get_json()
-    print(data.get('fullname'))
     try:
+        data = request.get_json()
+        
+        # Validate required fields (
+        required_fields = ['cart_id', 'amount', 'fullname', 
+                         'email', 'address', 'phone', 'items']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+
+        # Create order (keep all data storage)
         new_order = Order(
-            fullname=data.get('fullname'),
-            email= data.get('email'),
-            phone = data.get('phone'),
-            address=data.get('address'),
-            items= data.get('items'),
-            amount=data.get('amount'),
+            cart_id=uuid.UUID(data['cart_id']),
+            amount=data['amount'],
+            fullname=data['fullname'],
+            email=data['email'],
+            address=data['address'],
+            phone=data['phone'],
             status=data.get('status', 'Processing'),
-            created_at=datetime.utcnow(),
         )
-        print(new_order.fullname)
         db.session.add(new_order)
+        db.session.flush()
+
+        # Add items
+        for item_data in data['items']:
+            item = OrderItem(
+                order_id=new_order.id,
+                product_id=item_data['product_id'],
+                quantity=item_data['quantity'],
+                price=item_data.get('price', 0)
+            )
+            db.session.add(item)
+
         db.session.commit()
-        return jsonify({'order_id': new_order.id}), 201
+        
+        # Return only what's needed for display
+        return jsonify({
+            "message": "Order created successfully",
+            "order": {
+                "id": str(new_order.id), 
+                "fullname": new_order.fullname,
+                "email": new_order.email,
+                "address": new_order.address,
+                "phone": new_order.phone,
+            }
+        }), 201
+
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": f"Invalid data format: {str(e)}"}), 400
     except Exception as e:
+        db.session.rollback()
+        traceback.print_exc()
+        current_app.logger.error(f"Order creation failed: {str(e)}")
+        return jsonify({"error": "Failed to create order"}), 500
+    
+@app.route('/submit_complain', methods=['POST'])
+def submit_complain():
+    try: 
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        required_fields = ['name', 'email', 'message', 'subject']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+            
+        new_complaint = Complaint(
+            name =  data['name'],
+            email =  data['email'],
+            message =  data['message'],
+            subject =  data['subject'],
+        )
+        db.session.add(new_complaint)
+        db.session.commit()
+
+        return jsonify({
+            "message": "complaint succesfully created", 
+            "complaint":{
+                "id": str(new_complaint.id), 
+                "name": new_complaint.name,
+                "email": new_complaint.email,
+                "message": new_complaint.message, 
+                "subject": new_complaint.subject
+        
+            }
+        }),201
+    except Exception as e: 
+        db.session.rollback()
+        import traceback
+        print("❌ Error in submit_complain route:")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     
-@app.route('/orders', methods=['GET'])  
-def get_all_orders():
+
+
+
+# GET single complain
+@app.route('/complaints/<int:complain_id>', methods=['GET'])
+def get_complaint(complain_id):
     try:
-        orders = Order.query.all()
-        result = []
-        last_order =orders[-1]
-        print(last_order.fullname)
-        for order in orders:
-            result.append({
-                'id': order.id,
-                'fullname': order.fullname,
-                'email': order.email,
-                'phone': order.phone,
-                'address': order.address,
-                'items': [item.to_dict() for item in order.items], 
-                'total_amount': order.amount,
-                'status': order.status,
-                'created_at': order.created_at.isoformat(),
-            })
-       
-       
-        return jsonify(result), 200
+        complaint = Complaint.query.get(complain_id)
+        if not complaint:
+            return jsonify({"error": "Complaint not found"}), 404
+
+        return jsonify({
+            "id": complaint.id,
+            "name": complaint.name,
+            "email": complaint.email,
+            "message": complaint.message,
+            "subject": complaint.subject
+        }), 200
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
+  
+
+ # GET /complaints — retrieve all complaints
+@app.route('/complaints', methods=['GET'])
+def get_all_complaints():
+    try:
+        complaints = Complaint.query.all()
+        return jsonify([
+            {
+                "id": c.id,
+                "name": c.name,
+                "email": c.email,
+                "message": c.message,
+                "subject": c.subject
+            }
+            for c in complaints
+        ]), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500 
 
 
-
-@app.route('/orders/<int:order_id>', methods=['GET'])
-def get_singleorder(order_id):
-    order = Order.query.get(order_id)
-    if not order:
-        return jsonify({'error': 'Order not found'}), 404
-
-    return jsonify({
-        'id': order.id,
-        'fullname': order.fullname,
-        'email': order.email,
-        'phone': order.phone,
-        'address': order.address,
-        'items': json.loads(order.items),  # convert JSON string back to Python list
-        'total_amount': order.amount,
-        'status': order.status,
-        'created_at': order.created_at.isoformat(),
-    })
+  
+  
 
 
-@app.route('/recent_orders', methods=['GET'])
-def recent_orders():
+# @app.route('/create_order', methods=['POST'])
+# def create_order():
+#     data = request.get_json()
+#     print(data.get('fullname'))
+#     try:
+#         new_order = Order(
+#             fullname=data.get('fullname'),
+#             email= data.get('email'),
+#             phone = data.get('phone'),
+#             address=data.get('address'),
+#             items= data.get('items'),
+#             amount=data.get('total'),
+#             status=data.get('status', 'Processing'),
+#             cart_id=data.get('cart_id'), 
+#             reference=str(uuid.uuid4()),
+#             created_at=datetime.utcnow(),
+#         )
+#         print(new_order.fullname)
+#         db.session.add(new_order)
+#         db.session.commit()
+#         return jsonify({'order_id': new_order.id}), 201
+#     except Exception as e:
+#         traceback.print_exc()
+#         return jsonify({'error': str(e)}), 500
+    
+# @app.route('/orders', methods=['GET'])  
+# def get_all_orders():
+#     try:
+#         orders = Order.query.all()
+#         result = []
+#         last_order =orders[-1]
+#         print(last_order.fullname)
+#         for order in orders:
+#             result.append({
+#                 'id': order.id,
+#                 'fullname': order.fullname,
+#                 'email': order.email,
+#                 'phone': order.phone,
+#                 'address': order.address,
+#                 'items': [item.to_dict() for item in order.items], 
+#                 'total_amount': order.amount,
+#                 'status': order.status,
+#                 'created_at': order.created_at.isoformat(),
+#             })
+       
+       
+#         return jsonify(result), 200
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
+@app.route('/orders', methods=['GET'])
+def get_orders():
+    try:
+        # Get query parameters
         status = request.args.get('status')
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
 
-        query = db.session.query(Order).order_by(Order.created_at.desc())
+        # Base query with eager loading
+        query = Order.query.options(
+            db.joinedload(Order.payments),
+            db.joinedload(Order.user),
+            db.joinedload(Order.order_items).joinedload(OrderItem.product)
+        ).order_by(Order.created_at.desc())
 
+        # Filter by status if provided
         if status:
             query = query.filter(Order.status == status)
 
-        # pagination
-        query = query.offset((page - 1) * per_page).limit(per_page)
+        # Pagination
+        paginated_orders = query.paginate(page=page, per_page=per_page, error_out=False)
+        orders = paginated_orders.items
 
-        orders = query.all()
+        # Build response
+        result = {
+            "page": paginated_orders.page,
+            "per_page": paginated_orders.per_page,
+            "total_pages": paginated_orders.pages,
+            "total_orders": paginated_orders.total,
+            "orders": [{
+                "id": order.id,
+                "amount": order.amount,
+                "status": order.status,
+                "paid": order.paid,
+                "reference": order.payments[0].reference if order.payments else None,
+                "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": order.user_id,
+                "user_email": order.user.email if order.user else None,
+                "fullname": order.fullname,
+                "email": order.email,
+                "address": order.address,
+                "phone": order.phone,
+                "items": [{
+                    "id": item.id,
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "price": item.price,
+                    "product_name": item.product.product_name if item.product else None,
+                    "image_url": item.product.image_url if item.product else None
+                } for item in order.order_items]
+            } for order in orders]
+        }
 
-        result = [{
+        # Log successful request
+        app.logger.info(f"Successfully fetched {len(orders)} orders")
+        return jsonify(result)
+
+    except Exception as e:
+        app.logger.error(f"Error in /orders endpoint: {str(e)}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "Failed to fetch orders",
+            "message": str(e)
+        }), 500
+
+@app.route('/orders/<int:order_id>', methods=['GET'])
+def get_singleorder(order_id):
+    try:
+        # Updated to use Session.get() instead of Query.get()
+        order = db.session.get(Order, order_id)
+        
+        if not order:
+            return jsonify({"error": "Order not found"}), 404
+
+        # Get payment reference if exists
+        payment_ref = order.payments[0].reference if order.payments else None
+
+        # Build response using order_items relationship
+        order_data = {
             "id": order.id,
+            "cart_id": str(order.cart_id),
             "amount": order.amount,
             "status": order.status,
             "paid": order.paid,
-            "reference": order.reference,
             "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "user_id": order.user_id,
-            "user_email": order.user.email if order.user else None,
             "fullname": order.fullname,
             "email": order.email,
             "address": order.address,
-            "items": json.loads(order.items),
-
             "phone": order.phone,
-            } for order in orders]
+            "user_id": order.user_id,
+            "user_email": order.user.email if order.user else None,
+            "reference": payment_ref,
+            # Use order_items relationship instead of items
+            "items": [{
+                "id": item.id,
+                "product_id": item.product_id,
+                "quantity": item.quantity,
+                "price": item.price,
+                "product_name": item.product.product_name if item.product else None,
+                "image_url": item.product.image_url if item.product else None
+            } for item in order.order_items]
+        }
 
-        return jsonify({
-            "page": page,
-            "per_page": per_page,
-            "orders": result
-        })   
+        return jsonify(order_data)
+
+    except Exception as e:
+        app.logger.error(f"Error fetching order {order_id}: {str(e)}")
+        return jsonify({"error": "Failed to fetch order"}), 500
+
+#update status route
+@app.route('/orders/<int:order_id>/status', methods=['PUT'])
+def update_orderstatus(order_id):
+    data = request.get_json()
+    new_status = data.get('status')
+
+    order = db.session.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return jsonify({'error':'order not found'}), 404
+    
+    order.status = new_status
+    db.session.commit()
+    
+    return jsonify({
+        'message': 'order status updated',
+        'order': {
+            'id': order.status,
+            'status':order.status,
+        }
+    })
+    
+
+
+@app.route('/recent_orders', methods=['GET'])
+def recent_orders():
+    status = request.args.get('status')
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+
+    # Eager load payments and user to avoid N+1 queries
+    query = db.session.query(Order).options(
+        db.joinedload(Order.payments),
+        db.joinedload(Order.user)
+    ).order_by(Order.created_at.desc())
+
+    if status:
+        query = query.filter(Order.status == status)
+
+    # Pagination
+    query = query.offset((page - 1) * per_page).limit(per_page)
+    orders = query.all()
+
+    result = [{
+        "id": order.id,
+        "amount": order.amount,
+        "status": order.status,
+        "paid": order.paid,
+        # Get reference from the first payment (if exists)
+        "reference": order.payments[0].reference if order.payments else None,
+        "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "user_id": order.user_id,
+        "user_email": order.user.email if order.user else None,
+        "fullname": order.fullname,
+        "email": order.email,
+        "address": order.address,
+        "items": json.loads(order.items),  # Assuming items is stored as JSON string
+        "phone": order.phone,
+    } for order in orders]
+
+    return jsonify({
+        "page": page,
+        "per_page": per_page,
+        "orders": result
+    }) 
+
+@app.route('/paystack/webhook', methods=['POST'])
+def paystack_webhook():
+    secret = bytes(PAYSTACK_KEY, 'utf-8')
+    signature = request.headers.get('x-paystack-signature', '')
+    body = request.get_data()
+
+    hashed = hmac.new(secret,body,  hashlib.sha512).hexdigest()
+    if hashed != signature:
+        return 'Invalid signature', 400
+    
+    data = request.get_json()
+
+    if data['event'] == 'charge.success':
+        order_id = data['data']['metadata'].get('order_id')
+
+        order = Order.query.get(order_id)
+        if order:
+            order.paid = True
+            cart  = Cart.query.get(order.cart_id)
+            if cart:
+                 CartItem.query.filter_by(cart_id=cart.cart_id).delete()
+            db.session.commit()
+
+        return jsonify({'status': 'ok'}), 200
+
+    return jsonify({'status': 'ignored'}), 200
+
 
 
 @app.route("/debug/images")
@@ -655,9 +1172,7 @@ def debug_images():
 
 
 if __name__ == "__main__":
-    # Initialize the database
     with app.app_context():
-        db.create_all()
-        print("Database initialized")
+        upgrade() 
+        print("Database migrated")
     app.run(debug=True, port=5002)
-
