@@ -223,7 +223,9 @@ const EditProduct = () =>{
                     Save Product
                 </button>
 
-                <button type='button' className='border border-purple-200 bg-white rounded-lg px-7 py-2.5 text-purple-400 font-semibold shadow-md mt-6 '>
+                <button type='button'
+                 onClick={()=> navigate('/productmanagement')}
+                 className='border border-purple-200 bg-white rounded-lg px-7 py-2.5 text-purple-400 font-semibold shadow-md mt-6 '>
                     Cancel
                 </button>
                  </div>

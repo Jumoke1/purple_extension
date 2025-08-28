@@ -29,7 +29,7 @@ import Sidebar from "../components/SideBar";
   },[])
    
  useEffect(()=> {
-      fetch('http://127.0.0.1:5002/recent_orders', {
+      fetch('http://127.0.0.1:5002/orders', {
       method: 'GET',
       credentials: 'include',
     })
@@ -44,9 +44,10 @@ import Sidebar from "../components/SideBar";
         console.error("Error fetching admin statistics:", err);
       });
     },[])
- 
 
   
+  
+
   return (
     <div className="flex bg-purple-100 min-h-screen p-4">
          <Sidebar/>

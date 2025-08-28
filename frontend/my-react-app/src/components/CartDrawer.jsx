@@ -1,9 +1,46 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { FaTrash } from "react-icons/fa";
 
 const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
   const [cartItems, setCartItems] = useState([]);
   const navigate = useNavigate();
+
+const handleDelete = async (cartId, productId) => {
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:5002/delete_Itemincart/${cartId}/${productId}`, 
+      {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete item');
+    }
+
+    const data = await response.json();
+    console.log('Success:', data);
+    
+    setCartItems(prev => prev.filter(item => 
+      item.cart_id !== cartId || item.product_id !== productId
+    ));
+  } catch (error) {
+    console.error('Error:', error);
+    // Add user notification here
+  }
+};
+const handleError = (err) => {
+  console.error("Delete error:", err);
+  // Add user notification here
+};
+
+  
 
   const handleCheckout = () => {
     navigate('/checkout', { state: {totalAmount: totalPrice}})
@@ -74,6 +111,12 @@ const CartDrawer = ({ isOpen, onClose, refreshTrigger }) => {
             <p className="font-semibold">
               ₦{(product.quantity * product.product_price).toFixed(2)}
             </p>
+           <button
+              onClick={() => handleDelete(product.cart_id, product.product_id)}
+            >
+              <FaTrash/>
+          </button>
+            
           </div>
         ))
       )}

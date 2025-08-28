@@ -12,6 +12,10 @@ export default function Sidebar() {
         <li>
           <Link to="/addnewproduct" className="text-purple-600 hover:text-purple-800 font-semibold">Add Product</Link>
         </li>
+         <li>
+          <Link to="/clientcomplaint" className="text-purple-600 hover:text-purple-800 font-semibold">Client Complain</Link>
+        </li>
+        
         
       </ul>
     </div>

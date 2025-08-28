@@ -12,6 +12,9 @@ const SingleProductpage = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [cartRefreshKey, setCartRefreshKey] = useState(0); // 👈 trigger reload in CartDrawer
+  const [selectedColor, setSelectedColor] = useState('');
+  const [selectedLength, setSelectedLength] = useState('');
+
 
   function getSessionId() {
     const sessionId = localStorage.getItem('session_id');
@@ -93,7 +96,7 @@ const SingleProductpage = () => {
       body: JSON.stringify({
         product_id: product.id,
         quantity: count,
-        session_id: getSessionId() // 👈 Use session ID from localStorage
+        session_id: getSessionId() // Use session ID from localStorage
       })
     })
       .then(res => {
@@ -108,8 +111,8 @@ const SingleProductpage = () => {
         console.log('Server response:', data);
         setMessage(data.message);
         setSessionId(data.session_id); // 👈 Update session ID in localStorage
-        setCartRefreshKey(prev => prev + 1);  // ✅ Refresh cart drawer
-        setIsCartOpen(true);                 // ✅ Open cart drawer after success
+        setCartRefreshKey(prev => prev + 1);  //  Refresh cart drawer
+        setIsCartOpen(true);                 // Open cart drawer after success
       })
       .catch(err => {
         console.error('Error adding to cart:', err);
@@ -141,7 +144,29 @@ const SingleProductpage = () => {
           <p className="mb-4 text-gray-700 font-semibold text-2xl">₦{product.product_price}</p>
           <p className="text-sm mb-2 text-gray-700">{product.product_description}</p>
           <p className="text-sm text-gray-600">Available stock: {product.stock}</p>
-          <p>{product.color}</p>
+         <div className="mt-4">
+          <span className="font-semibold text-gray-700">Choose Color:</span>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {Array.isArray(product.color) ? (
+              product.color.map((c, index) => (
+                <button
+                  key={index}
+                  onClick={() => setSelectedColor(c)}
+                  className={`px-3 py-1 rounded border ${
+                    selectedColor === c
+                      ? 'bg-purple-700 text-white'
+                      : 'bg-white text-gray-700 border-purple-400'
+                  }`}
+                >
+                  {c}
+                </button>
+              ))
+            ) : (
+              <p className="text-gray-500">{product.color}</p> // fallback if it's not an array
+            )}
+          </div>
+      </div>
+
 
           <div className="flex flex-col items-start mt-6">
             <span className="mb-1 font-semibold">Length</span>
@@ -186,7 +211,7 @@ const SingleProductpage = () => {
       {/* Related Products Section */}
       <h3 className="text-center font-semibold mt-16 text-2xl">YOU MAY ALSO LIKE THIS</h3>
       <div className="flex flex-wrap justify-center px-4 py-6 gap-12 mx-auto max-w-6xl">
-        {relatedProduct.map(product => (
+        {relatedProduct.slice(0, 3).map(product => (
           <Link
             key={product.id}
             to={`/singleproductpage/${product.id}`}

@@ -47,23 +47,42 @@ const CheckOut = () => {
           setLoading(false)
           return
         }
+      const cartId = cartItems.length > 0 ? cartItems[0].cart_id : null;
+
+      if (!cartId) {
+        setError("Cart ID not found. Please refresh the page or add items again.");
+        setLoading(false);
+        return;
+      }
 
     const orderData = {
       fullname: fullname, 
       email: email,
       phone: phone ,
       address:  address ,
-      items: cartItems,
-      total: amount,
-      status: "Processing"
+      amount: amount,
+      status: "Processing",
+      cart_id: cartId,
+      items: cartItems.map(item => ({
+        product_id: item.product_id || item.id,
+        quantity: item.quantity,
+        price: item.product_price  
+    }))
+
     };
     try {
       //save the order details to the backend
-      await fetch("http://localhost:5002/create_order",{
+        const orderResponse = await fetch("http://localhost:5002/create_order",{
         method: "POST",
         headers:{"Content-Type": "application/json"},
         body: JSON.stringify(orderData),
       });
+
+      if (!orderResponse.ok) {
+        throw new Error("failed  to create order")
+      }
+
+      const createdOrder = await orderResponse.json();
 
       //payment initialization
       const response = await fetch('http://localhost:5002/payment', {
@@ -72,6 +91,7 @@ const CheckOut = () => {
         body: JSON.stringify({
           email,
           amount: Number(amount),
+          order_id: createdOrder.order.id
         }),
       });
 

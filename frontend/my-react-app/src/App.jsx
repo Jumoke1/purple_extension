@@ -23,6 +23,8 @@ import EditProduct from './pages/EditProduct'
 import AboutUs from './pages/AboutUs'
 import SingleorderDetails from './pages/SingleorderDetails'
 import NewOrder from './pages/NewOrders'
+import ClientComplaint from './pages/ClientComplaint'
+
 import CartDrawer from './components/CartDrawer'
 
 
@@ -37,6 +39,7 @@ function LayoutWrapper(){
 }
 
 function App() {
+
 
 	  return (
 		<Router>
@@ -65,6 +68,7 @@ function App() {
 					<Route path='/aboutus' element={<AboutUs/>} />
 					<Route path='/singleorderdetails/:orderId' element={<SingleorderDetails/>} />
 					<Route path='/neworder' element={<NewOrder/>} />
+					<Route path='/clientcomplaint' element={<ClientComplaint/>} />
 				
           </Route>
 			</Routes>

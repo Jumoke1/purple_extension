@@ -1,8 +1,53 @@
+import { useState } from 'react';
 import React from 'react';
-
-
 import { FaEnvelope, FaPhone, FaInstagram, FaFacebookF, FaMapMarkerAlt, FaTiktok} from 'react-icons/fa';
-const contactUs = () => {
+
+
+const ContactUs = () => {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('') ;
+  const [message, setMessage] = useState('')
+  const [subject, setSubject] = useState('')
+
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    const complaintData = {
+    name ,
+    email,
+    message,
+    subject
+  }
+
+  // validation
+  if (!name || !email || !message || !subject) {
+  alert("Please fill in all required fields.");
+  return;
+}
+    try{
+      const res = await fetch("http://localhost:5002/submit_complain",{
+        method: 'POST',
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(complaintData),
+      })
+
+      if (!res.ok) {
+        throw new Error("Failed to submit complaint");
+      }
+
+      const data = await res.json();
+      console.log("Complaint submitted:", data);
+      alert("Complaint submitted successfully!");
+     }catch(error) {
+      console.error(error);
+      alert("Something went wrong while submitting your complaint.");
+     }
+};
+
+
     return(
         <div>
         <section className="h-44 w-full bg-cover bg-center bg-no-repeat"> 
@@ -23,27 +68,39 @@ const contactUs = () => {
             {/* contact form */}
            <div className="bg-purple-50 rounded-lg shadow p-6 flex-1 ">
             <h2 className="text-xl font-semibold mb-4 text-purple-700">Get in touch</h2>
-            <form action="" className="space-y-4">
+            <form onSubmit={handleSubmit}  className="space-y-4">
                 <div>
                     <label className="block text-sm mb-1">Name</label>
-                    <input type="text" className='"w-full border rounded px-3 py-2' placeholder= "Your Name"/>
+                    <input type="text" 
+                     value={name}
+                     onChange={(e) => setName(e.target.value)}
+                     className='"w-full border rounded px-3 py-2' placeholder= "Your Name"/>
                 </div>
                 <div>
                     <label className="block text-sm mb-1">Email</label>
-                    <input type="text" className='"w-full border rounded px-3 py-2' placeholder= "Your Email"/>
+                    <input type="text" 
+                     value={email}
+                     onChange={(e) => setEmail(e.target.value)}
+                    className='w-full border rounded px-3 py-2' placeholder= "Your Email"/>
                 </div>
                 <div>
                     <label className="block text-sm mb-1">Subject</label>
-                    <select name="" id="">
-                      <option value="">Order</option>
-                      <option value="">Delivery Inquiry</option>
-                      <option value="">Styling Advice</option>
-                      <option value="">Others</option>
-                    </select>
+                    <select
+                       value={subject}
+                       onChange={(e) => setSubject(e.target.value)}
+                       >
+                        <option value="Order">Order</option>
+                        <option value="Delivery Inquiry">Delivery Inquiry</option>
+                        <option value="Styling Advice">Styling Advice</option>
+                        <option value="Others">Others</option>
+                     </select>
                 </div>
                 <div>
                     <label className="block text-sm mb-1">Message</label>
-                    <textarea className="w-ful border rounded px-3 py-2" rows={4} id=""></textarea>
+                    <textarea 
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      className="w-ful border rounded px-3 py-2" rows={4} id=""></textarea>
                 </div>
 
                 <button type='submit' className='w-full text-white rounded bg-purple-700 px-4 py-2 hover:bg-purple-500 '>
@@ -98,4 +155,4 @@ const contactUs = () => {
       </div>
     )
 }
-export default contactUs;
+export default ContactUs;

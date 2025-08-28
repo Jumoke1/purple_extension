@@ -11,20 +11,32 @@ const  AddnewProduct = () => {
       product_name: '', 
       product_price: '',           
       product_description: '',      
-      color: '',                    
-      length: '',                   
+      color: [],               
+      length: [],                  
       stock: '',                    
-      status: '',             
-      category: '' 
+      status: '', 
+      best_seller:false,
+      new_in_stock:false,            
+      category: '',
     })
     const [imageFile, setImageFile] = useState(null)
     const navigate = useNavigate()
 
     const handleChange = (e) => {
         const {name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
+        let newValue = value;
+
+        if (name === "color" || name === "length") {
+            newValue = value.split(",").map((item) => item.trim());
+        }
+
+        if (name === "best_seller"|| name=== "new_in_stock") {
+            newValue = value === "true"
+        }
+
+        setFormData(prevData => ({
+            ...prevData,
+            [name]: newValue
         }));
     };
 
@@ -35,15 +47,17 @@ const  AddnewProduct = () => {
         setError(null)
         
         //client side verification
-        const requiredFields =['product_name', 'product_price', 'product_description', 'stock', 'length', 'status', 'category'
+        const requiredFields =['product_name', 'product_price', 'product_description', 'stock', 'length', 'status', 'new_in_stock','best_seller','category'
         ]
-        const missingFields = requiredFields.filter(field => !formData[field]);
+        const missingFields = requiredFields.filter(field => 
+        formData[field] === '' || formData[field] === null || formData[field] === undefined
+        );
 
-        if(missingFields.length > 0) {
-            alert(`Missing required fields: ${missingFields.join(', ')}`);
 
-            setLoading(false)
-            return
+        if (missingFields.length > 0) {
+          alert(`Missing required fields: ${missingFields.join(', ')}`);
+          setLoading(false)
+          return
         }
 
         if (!imageFile) {
@@ -55,13 +69,17 @@ const  AddnewProduct = () => {
 
     const formDataToSend = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
-        if (value !== ''){
-            formDataToSend.append(key, value);
+
+        if ( Array.isArray(value)) {
+            formDataToSend.append(key, JSON.stringify(value));
+            }
+            else if (value !== '') {
+                formDataToSend.append(key, value);
             }
         })
         formDataToSend.append('image', imageFile)
     
-        
+    
         try{
             const response = await fetch('http://localhost:5002/add_product',{
                 method: 'POST',
@@ -103,7 +121,7 @@ const  AddnewProduct = () => {
 
             {error && <p className="text-red-500 mb-4">{error}</p>}
 
-            <div className=' w-full bg-white rounded-lg shadow p-6 max-w-2xl'>11
+            <div className=' w-full bg-white rounded-lg shadow p-6 max-w-2xl'>
                 
                 <form onSubmit={handleSubmit} action=""className=''>
                     <h3 className="text-purple-400 font-semibold text-lg mb-4">Basic Information</h3>
@@ -145,7 +163,7 @@ const  AddnewProduct = () => {
                     <div className='mt-6'>
                     <input type="text"
                      name="color" 
-                     value={formData.color}
+                     value={formData.color.join(',')}
                      onChange={handleChange}
                      className='px-3 py-3 border border-purple-200 w-full rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-400' placeholder=''/>
                     <br />
@@ -155,8 +173,9 @@ const  AddnewProduct = () => {
                      <div className='mb-4'>
                     <input type="text"
                      name="length"
-                     value={formData.length}
+                     value={formData.length.join(',')}
                      onChange={handleChange}
+                     
 
                     className='px-3 py-3 border border-purple-200 w-full rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-400' placeholder=''/>
                     <br />
@@ -180,6 +199,40 @@ const  AddnewProduct = () => {
                             </label>
                         </div>
 
+
+                      <div className="mb-4">
+                          
+                            <select
+                                name="new_in_stock"
+                                value={formData.new_in_stock}
+                                onChange={handleChange}
+                                className='border border-purple-200 rounded-lg px-2 py-4 w-full'
+                                required
+                            >
+                                <option value="true">True</option>
+                                <option value="false">False</option>
+                            </select>
+                              <label className='block text-sm font-medium text-gray-700 mb-1'>
+                                 New in Stock
+                            </label>
+                        </div>
+
+                        <div className="mb-4">
+                          
+                            <select
+                                name="best_seller"
+                                value={formData.best_seller}
+                                onChange={handleChange}
+                                className='border border-purple-200 rounded-lg px-2 py-4 w-full'
+                                required
+                            >
+                                <option value="true">True</option>
+                                <option value="false">False</option>
+                            </select>
+                              <label className='block text-sm font-medium text-gray-700 mb-1'>
+                                 Best seller
+                            </label>
+                        </div>
                     
                     
                     <div>

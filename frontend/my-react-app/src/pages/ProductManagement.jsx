@@ -143,9 +143,12 @@ const handleDelete = async (id) => {
                 <td className="p-4 font-medium">{product.product_name}</td>
                 <td className="p-4">{product.category}</td>
                 <td className="p-4">₦{product.product_price.toFixed(2)}</td>
-                <td className="p-4">{product.color}</td>
+                <td className="p-4">
+                  {/* Fix for colors array display */}
+                  {Array.isArray(product.colors) ? product.colors.join(", ") : product.colors}
+                </td>
                 <td className="p-4">{product.stock}</td>
-                <td className="p-4">{product.length}</td>
+                <td className="p-4"> {product.lengths && product.lengths.length > 0 ? product.lengths.join(", ") : "—"}</td>
                 <td className="p-4">
                   <label className="inline-flex items-center cursor-pointer">
                     <input type="checkbox" className="sr-only peer" 

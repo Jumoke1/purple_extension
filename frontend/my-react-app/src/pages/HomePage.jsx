@@ -1,9 +1,7 @@
-import React from "react";
+import React, { useState , useEffect} from "react";
 import heroImage from '../assets/pony1-removebgpng.png'
 import { FaCrown, FaTruck, FaSmile, FaStar } from 'react-icons/fa';
-import img1 from '../assets/french_d.jpg'
-import img2 from '../assets/gold_hair.png'
-import img3 from '../assets/IMG_0232.jpg'
+
 import { Link } from "react-router-dom";
 
 
@@ -28,33 +26,29 @@ const testimonials = [
 ];
 
 
-// Sample products array
-const products = [
-  {
-    id: 1,
-    name: "Blonde Silk Extensions",
-    description: "20\" Seamless Clip-In",
-    price: "₦299.99",
-    image: img1,
-  },
-  {
-    id: 2,
-    name: "Body Wave Extensions",
-    description: "22\" Clip-In",
-    price: "₦349.99",
-    image: img2,
-  },
-  {
-    id: 3,
-    name: "Deep Curl Extensions",
-    description: "18\" Clip-In",
-    price: "₦289.99",
-    image: img3,
-  },
-];
-
 
 const HomePage = () => {
+  const [bestSeller, setBestSellers] = useState([]);
+  const [Loading, setLoading] = useState(true)
+  const [error, setError] = useState(null);
+
+  useEffect(()=> {
+fetch('http://127.0.0.1:5002/best_seller')
+    .then((res)=> {
+      if(!res.ok) throw new Error("failed to feth best sellers");
+      return res.json();
+    })
+    .then((data)=>{
+      setBestSellers(data)
+      setLoading(false)
+    })
+     .catch((err)=>{
+      setError(err.message)
+      setLoading(false)
+     })
+  },[])
+
+
   return (
   <div>
   <section className="bg-purple-100 py-20">
@@ -85,11 +79,11 @@ const HomePage = () => {
     </div>
   </section>
     
-      <div className="flex flex-col md:flex-row justify-between item-center px-4 py-6 bg-white"> 
+      <div className="flex flex-col md:flex-row justify-between items-center px-4 py-6 bg-white"> 
         <div className="md:w-1/3 flex flex-col items-center text-center">
         <FaCrown className="text-pink-500 text-4xl mb-3" />
         <h3 className="font-bold text-lg mb-1">Premium Quality</h3>
-        <p className="text-gray-600">100% quality extension</p>
+        <p className="text-gray-600"> 100% quality extension</p>
        </div>
 
         <div className="md:w-1/3 flex flex-col items-center text-center">
@@ -101,7 +95,7 @@ const HomePage = () => {
         <div className="md:w-1/3  flex flex-col items-center text-center">
           <FaSmile className="text-pink-500 text-4xl  mb-3" />
           <h3 className="font-bold text-lg mb-1">Satisfactory Guaranted</h3>
-          <p  text-gray-600>100% quality extension</p>
+          <p  className="text-gray-600">100% quality extension</p>
         </div>
       </div>
 {/* 
@@ -111,26 +105,38 @@ const HomePage = () => {
 
   <section className="py-16 bg-purple-100">
     <h2 className="text-center text-2xl font-semibold text-purple-800 mb-8">Best Sellers</h2>
-
+    {Loading? (
+      <p className="text-center text-gray-500">Loading best seller</p> 
+    ): error?(
+      <p className='text-cente text-red-500'>Error:{error}</p>
+    ):(
+      
     <div className="flex flex-wrap justify-center gap-8 max-w-6xl mx-auto px-4">
-      {products.map((product)=>(
+      {bestSeller.map((product)=>(
         //card
+    
         <div key={product.id} className="bg-white rounded-xl shadow-md overflow-hidden w-full sm:w-[300px]">
-          <img src={product.image} alt={product.name} className="w-full h-64 object-contain" />
+           <Link key={product.id}
+              to={`/singleproductpage/${product.id}`} 
+              className="w-full sm:w-[300px] flex flex-col items-center no-underline">
+          <img src={`http://127.0.0.1:5002/${product.image_url}`} alt={product.product_name} className="w-full h-64 object-contain" />
           <div className="p-4">
-          <h3 className="text-purple-800 font-bold text-lg">{product.name}</h3>
-          <p className="text-gray-600 text-sm">{product.description}</p>
+          <h3 className="text-purple-800 font-bold text-lg">{product.product_name}</h3>
+          {/* <p className="text-gray-600 text-sm">{product.product_description}</p> */}
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-purple-700 font-semibold">{product.price}</span>
+            <span className="text-purple-700 font-semibold">₦{Number(product.product_price).toFixed(2)}
+</span>
             <button className="bg-purple-700 text-white text-sm px-4 py-2 rounded hover:bg-purple-800 transition">
               Add to Cart
             </button>
             </div>
           </div>
+          </Link>
         </div>
       ))}
 
       </div>
+       )}
     </section>
 
 
@@ -160,7 +166,7 @@ const HomePage = () => {
       </section> 
  
       <section className="py-16 bg-gradient-to-r from-purple-800 to-pink-700 text-center">
-            <h3 className="text-white text-2xl md:3xl font-semi-bold text-center mb-2">Join Our News Letter</h3>
+            <h3 className="text-white text-2xl md:3xl font-semibold text-center mb-2">Join Our News Letter</h3>
             <p className="text-sm text-center text-white mb-6">Get exclusive offer and styling tips delivered to your inbox</p>
             <div className="flex justify-center  space-x-2">
             <input type="text" className="bg-white w-64 rounded-full text-center px-4 py-2 shadow-md border border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-400"placeholder="Enter your Email"/>

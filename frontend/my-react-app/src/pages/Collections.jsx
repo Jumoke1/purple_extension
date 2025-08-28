@@ -1,7 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import {Link} from 'react-router-dom'
-// import { color } from 'chart.js/helpers';
 
+const FILTER_ARR = [
+  {
+    Key: "type",
+    Title: "Type",
+    options: ["Curly", "Straight", "Wavy"],
+  },
+  {
+    Key: "length",
+    Title: "Length",
+    options: ["12 inch", "14 inch", "16 inch", "18 inch"],
+  },
+  {
+    Key: "color",
+    Title: "Color",
+    options: [
+      { label: "Black", value: "black", className: "bg-black" },
+      { label: "Brown", value: "brown", className: "bg-yellow-800" },
+      { label: "Blonde", value: "blonde", className: "bg-yellow-400" },
+    ],
+  },
+  {
+    Key: "texture",
+    Title: "Texture",
+    options: ["Silky", "Coarse", "Kinky"],
+  },
+];
 
 const Collections = () => {
     
@@ -9,9 +34,29 @@ const [products, setProducts] = useState([]);
 const [loading, setLoading] = useState (true)
 const [error, setError] = useState( null)
 
-const [selectedfilterItem, setSelectedfilterItem] = useState({});
+  const [selectedfilterItem, setSelectedfilterItem] = useState({});
+  const { type = [], length = [], color = [], texture = [] } = selectedfilterItem;
+
+  // Apply filtering
+  const filteredProducts = products.filter((product) => {
+    if (type.length > 0 && !type.includes(product.type)) return false;
+    if (length.length > 0 && !length.includes(product.length)) return false;
+    if (color.length > 0 && !color.includes(product.color)) return false;
+    if (texture.length > 0 && !texture.includes(product.texture)) return false;
+    return true;
+  });
+
+const [currentPage, setCurrentPage] = useState(1);
+const itemsPerPage = 12;
+
+const indexOfLastItem = currentPage + itemsPerPage;
+const indexOfFirstItem = indexOfLastItem -itemsPerPage;
+const currentProducts = filteredProducts.slice(indexOfFirstItem, indexOfLastItem)
 
 
+
+// Total pages
+const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
 useEffect(() => {
     fetch("http://localhost:5002/")
@@ -41,23 +86,6 @@ if (loading) {
   }
 
 
-const FILTER_ARR = [
-    {Title:"Type", Key:"type", options: ["Curly Ponytail", "French Curls Extension", "Braided Wig","Hallo Extension", "Deep Curl Extension"]},
-    {Title:"Length", Key:"length", options: ["12 inches", "14 inches", "16 inches", "20 inches", "22 inches", "24 inches","26 inches", "30 inches"]},
-    {Title: "Color", Key:"color", options: 
-        [
-            {label: "Black", value:"black", className:"bg-black"},
-            {label: "Blue", value:"blue", className:"bg-blue-400"},
-            {label: "Brown", value:"brown", className:"bg-brown-600"},
-            {label: "purple", value:"purple", className:"bg-purple-500"}
-
-        ]
-
-    },
-
-    {Title: "Texture", Key:"texture", options:["straight", "wavy", "curls"]}
-
-]
 
 
 
@@ -75,26 +103,6 @@ const FILTER_ARR = [
     })
 
   }
-//Destructure your  filtters (extracting keys from filters )
-  const {type =[], length =[], color =[], texture =[] } = selectedfilterItem;
-
-  const filteredProducts = products.filter(product => {
-    //checking product that matches any category
-    if (type.length> 0 && !type.includes(product.type)){
-        return false;
-    }
-    if (length.length > 0 && !length.includes(product.length)){
-        return false 
-    }
-    if (color.length > 0 && !color.includes(product.color)){
-        return false
-    }
-
-    if (texture.length > 0 && !texture.includes(product.texture)){
-        return false
-    }
-    return true;
-  })
 
   return (
     <div>
@@ -164,9 +172,9 @@ const FILTER_ARR = [
             <h3 className="text-purple-800 font-bold text-lg mb-2">
               {product.product_name}
             </h3>
-            <p className="text-gray-600 text-sm mb-4">
+           {/* <p className="text-gray-600 text-sm mb-4">
               {product.product_description}
-            </p>
+            </p>*/}
             
             {/* 3) Price and button aligned at bottom */}
             <div className="mt-auto flex items-center justify-between">
@@ -185,6 +193,28 @@ const FILTER_ARR = [
   </div>
 </main>
 
+      </div>
+
+       <div className="flex justify-center items-center mt-8 space-x-4">
+      <button
+        className="px-4 py-2 bg-purple-500 text-white rounded disabled:opacity-50 mb-4"
+        onClick={() => setCurrentPage(prev => prev - 1)}
+        disabled={currentPage === 1}
+      >
+        Prev
+      </button>
+
+      <span className="text-gray-700">
+        Page {currentPage} of {totalPages}
+      </span>
+
+      <button
+        className="px-4 py-2 bg-purple-500 text-white rounded disabled:opacity-50 mb-4"
+        onClick={() => setCurrentPage(prev => prev + 1)}
+        disabled={currentPage === totalPages}
+      >
+        Next
+      </button>
       </div>
 
     </div>
