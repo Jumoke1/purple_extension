@@ -41,7 +41,7 @@ class Product(db.Model):
                 "product_description": self.product_description,
                 "stock": self.stock, "image_url": self.image_url, 
                 "status":self.status, "product_price": self.product_price, 
-                "category":self.category, "test_column":self.test_column,   "colors": [c.color for c in self.colors],   "best_seller":self.best_seller, "new_in_stock":self.new_in_stock,  "lengths": [l.length for l in self.lengths],}
+                "category":self.category, "test_column":self.test_column,   "colors": [c.color for c in self.colors], "best_seller":self.best_seller, "new_in_stock":self.new_in_stock,  "lengths": [l.length for l in self.lengths],}
 
 
 
@@ -75,7 +75,7 @@ class Order(db.Model):
     __tablename__ = 'orders'
 
     id = Column(Integer, primary_key=True)
-    cart_id = db.Column(db.UUID(as_uuid=True), db.ForeignKey('carts.id', ondelete="CASCADE"), nullable=True)
+    cart_id = Column(db.UUID(as_uuid=True), ForeignKey('carts.id', ondelete="CASCADE"), nullable=True)
     amount = Column(Float)
     status = Column(String, default="Processing")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -86,6 +86,8 @@ class Order(db.Model):
     email = Column(String, nullable=False)
     address = Column(String, nullable=False)
     phone = Column(String, nullable=False)
+    order_summary = Column(Text)
+    total_amount = Column(Float, default=0)
 
     # User relationship
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -114,6 +116,9 @@ class OrderItem(db.Model):
     order_id = Column(Integer, ForeignKey("orders.id"))
     quantity = Column(Integer)
     price = Column(Float)
+    selected_color = Column(String)
+    selected_length = Column(String)
+    
       
     product = relationship('Product')
 
@@ -127,6 +132,8 @@ class User(db.Model):
     email = Column(String, unique=True, nullable=False)
     password = Column(String)
     confirm_password = Column(String)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     carts = relationship("Cart", back_populates="user", cascade="all, delete-orphan")
 
@@ -147,14 +154,15 @@ class User(db.Model):
             'id':self.id,
             'firstname':self.firstname,
             'lastname':self.lastname,
-            'email':self.email
+            'email':self.email,
+            'is_admin': self.is_admin
         }
     
 class Cart(db.Model):
     __tablename__ = 'carts'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     session_id =Column(String)
 
@@ -170,6 +178,8 @@ class CartItem(db.Model):
     cart_id = Column(UUID(as_uuid=True), ForeignKey('carts.id'), nullable=False)
     product_id = Column(Integer, ForeignKey('products.id'), nullable=False)
     quantity = Column(Integer, default=1)
+    selected_color = Column(String)
+    selected_length = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
   
 
@@ -186,10 +196,12 @@ class CartItem(db.Model):
         "product_price": self.product.product_price,
         "image_url": self.product.image_url,
         "stock": self.product.stock,
-        "color": self.product.color,
-        "length": self.product.length,
-      "status": self.product.status,
+        "colors": [color.color for color in self.product.colors],
+        "lengths": [length.length for length in self.product.lengths],
+        "status": self.product.status,
         "category": self.product.category,
+        "selected_color": self.selected_color,
+        "selected_length": self.selected_length,
     }
 
 class Payment(db.Model):

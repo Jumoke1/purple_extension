@@ -21,6 +21,9 @@ from models import db, Product, User,  Order,  OrderItem, Payment, Complaint, Pr
 from dotenv import load_dotenv
 import os
 import uuid
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from datetime import timedelta
+from mailer import send_email
 
 load_dotenv()
 
@@ -31,20 +34,30 @@ CORS(
     resources={
         r"/*": {
             "origins": ["http://localhost:5173"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "PATCH" "OPTIONS"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             
         }
     },
 )
 
+#  configurations jwt
+app.config['JWT_SECRET_KEY'] = 'SECRET_KEY'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)  # Token expires in 24 hours
+app.config['JWT_TOKEN_LOCATION'] = ['headers']  # Look for token in headers
+app.config['JWT_HEADER_NAME'] = 'Authorization' 
+app.config['JWT_HEADER_TYPE'] = 'Bearer'   
+
+# Initialize JWT
+jwt = JWTManager(app)
+
 # Flask-Mail configuration using environment variables
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+MAIL_PASSWORD= os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = ('Your Shop Name', os.getenv('MAIL_USERNAME'))
 
 mail = Mail(app)
@@ -56,9 +69,26 @@ def sendorder_email(recipient, subject, body):
     subject: email subject
     body: email content
     """
-    msg = Message(subject, recipients=[recipient])
-    msg.body = body
-    mail.send(msg)
+    try:
+        msg = Message(
+            subject=subject,
+            recipients=[recipient],
+            sender=app.config['MAIL_DEFAULT_SENDER']  # Use configured sender
+        )
+        msg.body = body
+        
+        # Add app context for Flask-Mail
+        with app.app_context():
+            mail.send(msg)
+        
+        app.logger.info(f"Email sent successfully to {recipient}")
+        return True
+        
+    except Exception as e:
+        # Log the detailed error
+        app.logger.error(f"Failed to send email to {recipient}: {str(e)}")
+        print(f"EMAIL ERROR: {e}")  # Also print to console for immediate visibility
+        return False
 
 
     
@@ -142,6 +172,7 @@ def singleProduct(id):
 #admin 
 #add product
 @app.route("/add_product", methods=["POST"])
+@jwt_required()
 def addProduct():
     try:
         print("Incoming request to: /add_product")
@@ -244,6 +275,7 @@ def related_products(id):
 
 #delete all product
 @app.route("/delete", methods=["DELETE", "OPTIONS"])
+@jwt_required()
 def delete_all_products():
 
     products = db.session.query(Product).all()
@@ -260,6 +292,7 @@ def delete_all_products():
 
  #delete  single product
 @app.route("/delete_product/<int:id>", methods = ["DELETE"])
+@jwt_required()
 def delete_product(id):
     
     products = db.session.query(Product).filter_by(id=id).first()
@@ -285,6 +318,7 @@ def update_product_options(id):
 
 #update the product
 @app.route("/update_product/<int:id>", methods=["PATCH"])
+@jwt_required()
 def update_product(id):
     print("request.form:", request.form)
     print("request.files:", request.files)
@@ -366,11 +400,13 @@ def addtoCart():
         product_id = data.get("product_id")
         quantity = data.get("quantity", 1)
         session_id = data.get("session_id")
+        selected_color = data.get('selected_color')
+        selected_length = data.get('selected_length')
 
         
         if not session_id:
             session_id = str(uuid.uuid4())
-            session[session_id]= session_id
+            session['session_id']= session_id
 
         if not product_id:
             return jsonify({"message": "Product ID is required"}), 400
@@ -384,49 +420,86 @@ def addtoCart():
 
         # session_id = get_or_create_session_id()
 
-        cart_item = Cart.query.filter_by(session_id=session_id, product_id=product_id).first()
+        #Find or create a cart for this session
+        cart = Cart.query.filter_by(session_id=session_id).first()
+        if not cart:
+            cart = Cart(session_id=session_id)
+            db.session.add(cart)
+            db.session.commit()
+
+        # Check if product already exists in cart_items
+        cart_item = CartItem.query.filter_by(cart_id=cart.id, product_id=product_id).first()
         if cart_item:
             if cart_item.quantity + quantity > product.stock:
                 return jsonify({"message": "Not enough stock"}), 400
             cart_item.quantity += quantity
+            if selected_color is not None:
+                cart_item.selected_color = selected_color
+            if selected_length is not None:
+                cart_item.selected_length = selected_length
         else:
-            new_cart = Cart(session_id=session_id, product_id=product_id, quantity=quantity)
-            db.session.add(new_cart)
+            #Create new cart item
+            cart_item = CartItem(
+                cart_id=cart.id,
+                product_id=product_id,
+                quantity=quantity,
+                selected_color=selected_color,   
+                selected_length=selected_length
+            )
+            db.session.add(cart_item)
 
+        # Reduce stock
         product.stock -= quantity
+
         db.session.commit()
 
-        return jsonify({"message": "Product added to cart", "success": True, "session_id": session_id}), 200
+        return jsonify({
+            "message": "Product added to cart",
+            "success": True,
+            "session_id": session_id
+        }), 200
 
     except Exception as e:
+        db.session.rollback()
         print("Error in addto_cart:", str(e))
         return jsonify({"message": "Server error", "error": str(e)}), 500
 
 
-@app.route("/view_cart/<id>", methods=["GET", "OPTIONS"])
-def view_cart(id):
+@app.route("/view_cart/<session_id>", methods=["GET", "OPTIONS"])
+def view_cart(session_id):
     if request.method == "OPTIONS":
-        return jsonify({}), 200  # CORS preflight response  
+        return jsonify({}), 200
 
     try:
-        print("view_cart called with id:", id)
-        session_id = id
-        cart_items = Cart.query.filter_by(session_id=session_id).all()
-
+        print("view_cart called with session_id:", session_id)
+        
+        # First, find the cart for this session
+        cart = Cart.query.filter_by(session_id=session_id).first()
+        
+        if not cart:
+            return jsonify({
+                "success": True,
+                "cart": [],
+                "message": "No cart found for this session"
+            }), 200
+        
+        # Then get all cart items for this cart
+        cart_items = CartItem.query.filter_by(cart_id=cart.id).all()
         cart_data = [item.to_dict() for item in cart_items]
 
         return jsonify({
             "success": True,
-            "cart": cart_data
+            "cart": cart_data,
+            "cart_id": str(cart.id),
+            "session_id": session_id
         }), 200
 
     except Exception as e:
+        print(f"Error in view_cart: {str(e)}")
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
-    
-
 
 @app.route("/test_route_working")
 def test_route():
@@ -434,13 +507,15 @@ def test_route():
 
 @app.route("/delete_Itemincart/<uuid:cart_id>/<int:product_id>", methods=["DELETE"])
 def delete_item_in_cart(cart_id, product_id):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
     print(f"DELETE request received for cart_id: {cart_id}, product_id: {product_id}")
     
     try:
         
         # Verify the item exists
-        cart_item = Cart.query.filter_by(
-            cart_id=str(cart_id),
+        cart_item = CartItem.query.filter_by(
+            cart_id=(cart_id),
             product_id=product_id
         ).first()
         
@@ -475,71 +550,115 @@ def checkout(cart_id):
         return jsonify({"message": "Cart is empty"}), 404
 
     total_amount = 0
-
     order_summary = ""
-    # Create and flush the order first to get its ID
-    new_order = Order(name=name, phone=phone, address=address, email=email)
-    db.session.add(new_order)
-    db.session.flush()
 
-    
-    for cart in cart_items:
-        product = db.session.query(Product).filter_by(id=cart.product_id).first()
-
-        if not product:
-            return jsonify({"message": f"Product with id {cart.product_id} not found"}), 404
-
-        if cart.quantity > product.stock:
-            return jsonify({"message": f"Not enough stock for {product.product_name}"}), 400
-
-        total_amount += product.product_price * cart.quantity
-
-        order_item = OrderItem(
-            order_id=new_order.id,
-            product_id=cart.product_id,
-            quantity=cart.quantity,
-            price=product.product_price
-        )
-        db.session.add(order_item)
-
-        # Add product details to order summary for the email
-        order_summary += f"{product.product_name} x {cart.quantity} = {product.product_price * cart.quantity}\n"
-        
-        for item in cart_items:
-            db.session.delete(item)
-
-    db.session.commit()
     try:
-        email_body = f"""
-        Hi {name},
+        print('mail failed')
+        # Create the order
+        new_order = Order(name=name, phone=phone, address=address, email=email)
+        db.session.add(new_order)
+        db.session.flush()
 
-        Thank you for your order! Here are your order details:
+        # Process each cart item
+        
+        for cart in cart_items:
+            product = db.session.query(Product).filter_by(id=cart.product_id).first()
 
-        {order_summary}
+            if not product:
+                return jsonify({"message": f"Product with id {cart.product_id} not found"}), 404
 
-        Total Amount: {total_amount}
+            if cart.quantity > product.stock:
+                return jsonify({"message": f"Not enough stock for {product.product_name}"}), 400
 
-        We will notify you once your order is shipped.
-        """
-        sendorder_email(recipient=email, subject="Order Confirmation", body=email_body)
-    except Exception as e:
-        print("Error sending email:", e)
+            # Update total
+            total_amount += product.product_price * cart.quantity
 
+            # Create order item
+            order_item = OrderItem(
+                order_id=new_order.id,
+                product_id=cart.product_id,
+                quantity=cart.quantity,
+                price=product.product_price
+            )
+            db.session.add(order_item)
 
-    traceback.print_exc()
-    return jsonify({
-        "message": "Order placed successfully",
-        "total_amount": total_amount,
-        "cart_id": cart_id,
-        "order_id": new_order.id
-    }), 200
+            # Update product stock
+            product.stock -= cart.quantity
 
-         
- 
+            # Add to order summary
+            order_summary += f"{product.product_name} x {cart.quantity} = {product.product_price * cart.quantity}\n"
+            
+            # Delete ONLY this cart item (not all items)
+            db.session.delete(cart)
+
+        #save toatal and oreder summmary in the. order recor
+        new_order.total_amount = total_amount
+        new_order.order_summary = order_summary
+
+        
+        db.session.commit()
+
     
-    #login for admin 
+        return jsonify({
+            "message": "Order placed successfully",
+            "total_amount": total_amount,
+            "cart_id": cart_id,
+            "order_id": new_order.id
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()  # Rollback on error
+        app.logger.error(f"Checkout error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"message": "Internal server error during checkout"}), 500
+    
+
+@app.route("/admin/login", methods=['POST'])
+def admin_login():
+    data = request.get_json()
+
+    user = db.session.query(User).filter_by(email=data['email']).first()
+    if not user:
+        return jsonify ({"message": "Invalid email or password "}), 401
+    
+    if bcrypt.checkpw(data['password'].encode('utf-8'), user.password.encode('utf-8')):
+        if not user.is_admin:
+            return jsonify({"message": "Admin aces required"}), 403
+        
+        #create jwt token
+        access_token = create_access_token(
+            identity=str(user.id),
+            additional_claims={'is_admin': True}
+        )
+         
+        return jsonify({
+            "message": "Admin login succesfull",
+            "access_token": access_token,
+            "user": user.to_dict()
+
+        }), 200
+    else:
+        return jsonify({"message": "Invalid email or password"}), 401
+    
+#verify token 
+@app.route('/api/admin/verify-token')
+@jwt_required()
+def verify_token():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    if not user.is_admin:
+        return jsonify({"valid": False, "error": "Not an admin"}), 403
+    
+    return jsonify({
+        "valid": True,
+        "user": user.to_dict()
+    })
+
+    #login 
 @app.route("/login", methods=['POST'])
 def login():
+
     data= request.get_json()
     
     user = db.session.query(User).filter_by(email=data['email']).first()
@@ -576,181 +695,103 @@ def signup():
     db.session.add(user)
     db.session.commit()
     return  jsonify(user.to_dict()),201
+
+def clear_cart(cart_id):
+    try:
+        cart = Cart.query.get(cart_id)
+        if cart:
+            # Delete all items inside the cart
+            CartItem.query.filter_by(cart_id=cart_id).delete()
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error clearing cart: {e}")
+
  
 @app.route('/payment', methods=['POST'])
 def payment():
     try:
-        # 1. Verify Paystack is configured
         if not PAYSTACK_KEY:
-            current_app.logger.error("Payment service not configured")
-            return jsonify({
-                "status": "error",
-                "message": "Payment service is currently unavailable",
-                "solution": "Please try again later or contact support"
-            }), 500
+            return jsonify({"status": "error", "message": "Payment service unavailable"}), 500
 
-        # 2. Get and validate request data
         data = request.get_json()
-        current_app.logger.info(f"Incoming payment request: {data}")
-
-        # Validate required fields
-        required_fields = ['email', 'amount', 'order_id']
-        if missing := [field for field in required_fields if field not in data]:
+        required_fields = ['email', 'fullname', 'amount', 'order_id']
+        missing = [field for field in required_fields if field not in data]
+        if missing:
             return jsonify({
                 "status": "error",
-                "message": f"Missing required fields: {', '.join(missing)}"
+                "message": f"Missing fields: {', '.join(missing)}"
             }), 400
 
-        # 3. Prepare payment data
-        try:
-            amount = int(float(data['amount']) * 100)  # Convert to kobo
-            if amount <= 0:
-                raise ValueError("Amount must be positive")
+        # Fetch order
+        order = Order.query.get(data['order_id'])
+        if not order:
+            return jsonify({"status": "error", "message": "Order not found"}), 404
 
-            payment_data = {
-                "email": data['email'],
-                "amount": amount,
-                "callback_url": "http://localhost:5173/success",
-                "metadata": {
-                    "order_id": data['order_id'],
-                    "custom_fields": [
-                        {
-                            "display_name": "Order Reference",
-                            "variable_name": "order_ref",
-                            "value": f"ORDER-{data['order_id']}"
-                        }
-                    ]
-                }
+        # Use amount from DB, fallback to frontend
+        amount_value = getattr(order, "total_amount", None) or data['amount']
+        amount = int(float(amount_value) * 100)
+        if amount <= 0:
+            return jsonify({"status": "error", "message": "Invalid amount"}), 400
+
+        # Prepare Paystack payload
+        payment_data = {
+            "email": order.email,
+            "amount": amount,
+            "callback_url": "http://localhost:5173/success",
+            "metadata": {
+                "order_id": order.id,
+                "customer_name": getattr(order, "fullname", None) or getattr(order, "name", ""),
+                "custom_fields": [
+                    {
+                        "display_name": "Order Reference",
+                        "variable_name": "order_ref",
+                        "value": f"ORDER-{order.id}"
+                    }
+                ]
             }
-        except (ValueError, TypeError) as e:
-            return jsonify({
-                "status": "error",
-                "message": f"Invalid amount: {str(e)}"
-            }), 400
-
-        # 4. Initialize payment with Paystack
-        headers = {
-            "Authorization": f"Bearer {PAYSTACK_KEY}",
-            "Content-Type": "application/json"
         }
 
-        try:
-            response = requests.post(
-                PAYSTACK_INIT_URL,
-                headers=headers,
-                json=payment_data,
-                timeout=10
-            )
+        headers = {"Authorization": f"Bearer {PAYSTACK_KEY}", "Content-Type": "application/json"}
+        response = requests.post(PAYSTACK_INIT_URL, headers=headers, json=payment_data, timeout=10)
+        response_data = response.json()
 
-            # 5. Handle Paystack response
-            response_data = response.json()
-            
-            if response.status_code != 200:
-                current_app.logger.error(f"Paystack API error: {response_data}")
-                return jsonify({
-                    "status": "error",
-                    "message": response_data.get('message', 'Payment failed'),
-                    "details": response_data
-                }), 400
-
-            if not response_data.get('status') or not response_data.get('data', {}).get('authorization_url'):
-                current_app.logger.error("Invalid Paystack response format")
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid response from payment gateway"
-                }), 500
-
-            # 6. Return success response
-            return jsonify({
-                "status": "success",
-                "message": "Payment initialized",
-                "authorization_url": response_data['data']['authorization_url'],
-                "reference": response_data['data']['reference']
-            })
-
-        except requests.exceptions.RequestException as e:
-            current_app.logger.error(f"Paystack connection error: {str(e)}")
+        if response.status_code != 200 or not response_data.get('status'):
             return jsonify({
                 "status": "error",
-                "message": "Could not connect to payment service"
-            }), 503
+                "message": response_data.get('message', 'Payment failed')
+            }), 400
+        # ✅ Send confirmation email (optional)
+        try:
+            email_body = f"""
+            Hi {getattr(order, "fullname", None) or getattr(order, "name", "Customer")},
+
+            Thank you for your order! Here are your order details:
+
+            {order.order_summary or "No summary available"}
+
+            Total Amount: {amount_value}
+            """
+            send_email(order.email, "Order Confirmation", email_body, MAIL_USERNAME, MAIL_PASSWORD)
+        except Exception as e:
+            current_app.logger.error(f"Email sending failed: {str(e)}")
+
+        return jsonify({
+            "status": "success",
+            "message": "Payment initialized",
+            "authorization_url": response_data['data']['authorization_url'],
+            "reference": response_data['data']['reference']
+        })
+         
 
     except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": "An unexpected error occurred"
-        }), 500
+        current_app.logger.error(f"Payment error: {str(e)}", exc_info=True)
+        return jsonify({"status": "error", "message": "Unexpected error"}), 500 
 
-# @app.route('/payment', methods=['POST'])
-# def payment():
-#     data = request.get_json()
-#     print("Received payment data:", data)
-
-#     email = data.get('email')
-#     amount = data.get('amount')
-#     order_id = data.get('order_id')
-
-#     # 1) Basic validation
-#     if not email or not amount or not order_id:
-#         return jsonify({'error': 'Email, amount, and order_id are required'}), 400
-
-#     # 2) Parse order_id as integer
-#     try:
-#         order_int = int(order_id)
-#     except ValueError:
-#         return jsonify({'error': 'Invalid order_id format'}), 400
-
-#     # 3) Load the actual Order from DB
-#     order = Order.query.get(order_int)
-#     if not order:
-#         return jsonify({'error': 'Order not found'}), 404
-
-#     # 4) Talk to Paystack
-#     url = 'https://api.paystack.co/transaction/initialize'
-#     headers = {
-#         'Authorization': 'Bearer YOUR_PAYSTACK_SECRET_KEY',
-#         'Content-Type': 'application/json',
-#     }
-#     payload = {
-#         'email': email,
-#         'amount': int(amount) * 100,  # in kobo
-#     }
-
-#     try:
-#         resp = requests.post(url, json=payload, headers=headers)
-#         result = resp.json()
-#         if not result.get('status'):
-#             return jsonify({'error': 'Payment initialization failed'}), 400
-
-#         reference = result['data']['reference']
-#         auth_url  = result['data']['authorization_url']
-
-#         # 5) Save payment in DB
-#         try:
-#             pay = Payment(
-#                 order_id=order.id,
-#                 reference=reference,
-#                 amount=amount,
-#                 paid=True,
-#                 paid_at=datetime.datetime.utcnow()
-#             )
-#             db.session.add(pay)
-#             order.status = 'paid'
-#             db.session.commit()
-#             return jsonify({'authorization_url': auth_url}), 201
-
-#         except Exception:
-#             traceback.print_exc()
-#             db.session.rollback()
-#             return jsonify({'error': 'Error saving payment'}), 500
-
-#     except requests.RequestException:
-#         traceback.print_exc()
-#         return jsonify({'error': 'Payment gateway communication failed'}), 502
 
 
 @app.route('/admin/statistics', methods=['GET'])
+@jwt_required()
 def get_statistic():
     total_orders = db.session.query(func.count(Order.id)).scalar()
     total_revenue = db.session.query(func.sum(OrderItem.price * OrderItem.quantity)).join(Order).filter(Order.paid == True).scalar()
@@ -768,59 +809,80 @@ def get_statistic():
 def create_order():
     try:
         data = request.get_json()
+        app.logger.info(f"Create order data: {data}")
         
-        # Validate required fields (
-        required_fields = ['cart_id', 'amount', 'fullname', 
-                         'email', 'address', 'phone', 'items']
+        # Validate required fields
+        required_fields = ['amount', 'fullname', 'email', 'address', 'phone', 'items']
         for field in required_fields:
             if field not in data:
+                app.logger.error(f"Missing required field: {field}")
                 return jsonify({"error": f"Missing required field: {field}"}), 400
+            else:
+                app.logger.info(f"Field {field}: {data[field]}")
 
-        # Create order (keep all data storage)
+        # Validate items array
+
+        if not isinstance(data['items'], list) or len(data['items']) == 0:
+            app.logger.error("Items must be a non-empty array")
+            return jsonify({"error": "Items must be a non-empty array"}), 400
+
+        # Validate each item
+        for i, item in enumerate(data['items']):
+            app.logger.info(f"Validating item {i}: {item}")
+            if 'product_id' not in item or 'quantity' not in item:
+                app.logger.error(f"Item {i} missing product_id or quantity: {item}")
+                return jsonify({"error": f"Item {i} must have product_id and quantity"}), 400
+
+        # Generate UUID for cart_id (or set to None)
+        cart_id = None  # Since we're not providing cart_id
+
+        # Create order
         new_order = Order(
-            cart_id=uuid.UUID(data['cart_id']),
-            amount=data['amount'],
+            cart_id=cart_id,
+            amount=float(data['amount']),
             fullname=data['fullname'],
             email=data['email'],
             address=data['address'],
             phone=data['phone'],
-            status=data.get('status', 'Processing'),
+            status='pending',
+            paid=False
         )
+        
+        app.logger.info(f"Creating order: {new_order.__dict__}")
+        
         db.session.add(new_order)
         db.session.flush()
+        app.logger.info(f"Order created with ID: {new_order.id}")
 
-        # Add items
+        # Add order items
         for item_data in data['items']:
-            item = OrderItem(
+            order_item = OrderItem(
                 order_id=new_order.id,
                 product_id=item_data['product_id'],
                 quantity=item_data['quantity'],
-                price=item_data.get('price', 0)
+                price=float(item_data.get('price', 0)),
+                selected_color=item_data.get('selected_color'),
+                selected_length=item_data.get('selected_length')
             )
-            db.session.add(item)
+            app.logger.info(f"Adding order item: {order_item.__dict__}")
+            db.session.add(order_item)
 
         db.session.commit()
+        app.logger.info(f"Order {new_order.id} committed successfully")
         
-        # Return only what's needed for display
         return jsonify({
+            "success": True,
             "message": "Order created successfully",
-            "order": {
-                "id": str(new_order.id), 
-                "fullname": new_order.fullname,
-                "email": new_order.email,
-                "address": new_order.address,
-                "phone": new_order.phone,
-            }
+            "order_id": new_order.id
         }), 201
 
-    except ValueError as e:
-        db.session.rollback()
-        return jsonify({"error": f"Invalid data format: {str(e)}"}), 400
     except Exception as e:
         db.session.rollback()
-        traceback.print_exc()
-        current_app.logger.error(f"Order creation failed: {str(e)}")
-        return jsonify({"error": "Failed to create order"}), 500
+        app.logger.error(f"Order creation failed: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Failed to create order: {str(e)}"}), 500
+    
+
+
     
 @app.route('/submit_complain', methods=['POST'])
 def submit_complain():
@@ -866,6 +928,7 @@ def submit_complain():
 
 # GET single complain
 @app.route('/complaints/<int:complain_id>', methods=['GET'])
+@jwt_required()
 def get_complaint(complain_id):
     try:
         complaint = Complaint.query.get(complain_id)
@@ -886,6 +949,7 @@ def get_complaint(complain_id):
 
  # GET /complaints — retrieve all complaints
 @app.route('/complaints', methods=['GET'])
+@jwt_required()
 def get_all_complaints():
     try:
         complaints = Complaint.query.all()
@@ -904,61 +968,8 @@ def get_all_complaints():
         return jsonify({'error': str(e)}), 500 
 
 
-  
-  
-
-
-# @app.route('/create_order', methods=['POST'])
-# def create_order():
-#     data = request.get_json()
-#     print(data.get('fullname'))
-#     try:
-#         new_order = Order(
-#             fullname=data.get('fullname'),
-#             email= data.get('email'),
-#             phone = data.get('phone'),
-#             address=data.get('address'),
-#             items= data.get('items'),
-#             amount=data.get('total'),
-#             status=data.get('status', 'Processing'),
-#             cart_id=data.get('cart_id'), 
-#             reference=str(uuid.uuid4()),
-#             created_at=datetime.utcnow(),
-#         )
-#         print(new_order.fullname)
-#         db.session.add(new_order)
-#         db.session.commit()
-#         return jsonify({'order_id': new_order.id}), 201
-#     except Exception as e:
-#         traceback.print_exc()
-#         return jsonify({'error': str(e)}), 500
-    
-# @app.route('/orders', methods=['GET'])  
-# def get_all_orders():
-#     try:
-#         orders = Order.query.all()
-#         result = []
-#         last_order =orders[-1]
-#         print(last_order.fullname)
-#         for order in orders:
-#             result.append({
-#                 'id': order.id,
-#                 'fullname': order.fullname,
-#                 'email': order.email,
-#                 'phone': order.phone,
-#                 'address': order.address,
-#                 'items': [item.to_dict() for item in order.items], 
-#                 'total_amount': order.amount,
-#                 'status': order.status,
-#                 'created_at': order.created_at.isoformat(),
-#             })
-       
-       
-#         return jsonify(result), 200
-#     except Exception as e:
-#         return jsonify({"error": str(e)}), 500
-
 @app.route('/orders', methods=['GET'])
+@jwt_required()
 def get_orders():
     try:
         # Get query parameters
@@ -1006,7 +1017,9 @@ def get_orders():
                     "quantity": item.quantity,
                     "price": item.price,
                     "product_name": item.product.product_name if item.product else None,
-                    "image_url": item.product.image_url if item.product else None
+                    "image_url": item.product.image_url if item.product else None,
+                    "selected_color": item.selected_color,
+                    "selected_length": item.selected_length
                 } for item in order.order_items]
             } for order in orders]
         }
@@ -1024,6 +1037,7 @@ def get_orders():
         }), 500
 
 @app.route('/orders/<int:order_id>', methods=['GET'])
+@jwt_required()
 def get_singleorder(order_id):
     try:
         # Updated to use Session.get() instead of Query.get()
@@ -1057,7 +1071,9 @@ def get_singleorder(order_id):
                 "quantity": item.quantity,
                 "price": item.price,
                 "product_name": item.product.product_name if item.product else None,
-                "image_url": item.product.image_url if item.product else None
+                "image_url": item.product.image_url if item.product else None,
+                "selected_color": item.selected_color,
+                "selected_length": item.selected_length
             } for item in order.order_items]
         }
 
@@ -1069,6 +1085,7 @@ def get_singleorder(order_id):
 
 #update status route
 @app.route('/orders/<int:order_id>/status', methods=['PUT'])
+@jwt_required()
 def update_orderstatus(order_id):
     data = request.get_json()
     new_status = data.get('status')
@@ -1091,6 +1108,7 @@ def update_orderstatus(order_id):
 
 
 @app.route('/recent_orders', methods=['GET'])
+@jwt_required()
 def recent_orders():
     status = request.args.get('status')
     page = request.args.get('page', 1, type=int)
@@ -1152,14 +1170,65 @@ def paystack_webhook():
             order.paid = True
             cart  = Cart.query.get(order.cart_id)
             if cart:
-                 CartItem.query.filter_by(cart_id=cart.cart_id).delete()
+                 CartItem.query.filter_by(cart_id=cart.id).delete()
+                 db.session.delete(cart)
+
             db.session.commit()
 
         return jsonify({'status': 'ok'}), 200
 
     return jsonify({'status': 'ignored'}), 200
 
+# Debug Endpoint to see all orders
+@app.route('/debug/orders')
+def debug_orders():
+    orders = Order.query.order_by(Order.created_at.desc()).all()
+    result = [{
+        'id': o.id, 
+        'paid': o.paid, 
+        'status': o.status,
+        'amount': o.amount,
+        'email': o.email,
+        'created_at': o.created_at.isoformat() if o.created_at else None
+    } for o in orders]
+    return jsonify(result)
 
+# Test webhook endpoint
+@app.route('/test_webhook/<int:order_id>', methods=['POST'])
+def test_webhook(order_id):
+    try:
+        print(f"🔄 TEST WEBHOOK: Processing order {order_id}")
+        
+        order = Order.query.get(order_id)
+        if not order:
+            return jsonify({'status': 'error', 'message': 'Order not found'}), 404
+
+        order.paid = True
+        
+        cart = Cart.query.get(order.cart_id)
+        if cart:
+            CartItem.query.filter_by(cart_id=cart.id).delete()
+            db.session.delete(cart)
+
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': f'Order {order_id} marked as paid'})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# Manual mark as paid endpoint
+@app.route('/mark_order_paid/<int:order_id>', methods=['POST'])
+def mark_order_paid(order_id):
+    try:
+        order = Order.query.get(order_id)
+        if order:
+            order.paid = True
+            db.session.commit()
+            return jsonify({'message': f'Order {order_id} marked as paid'})
+        return jsonify({'error': 'Order not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route("/debug/images")
 def debug_images():
@@ -1170,6 +1239,35 @@ def debug_images():
     except Exception as e:
         return jsonify({ "error": str(e) }), 500
 
+
+    
+@app.route('/test_real_email')
+def test_real_email():
+    try:
+        # Send a real test email
+        success = sendorder_email(
+            recipient="kazeemjumoke12@gmail.com",  # Send to yourself
+            subject="📧 Test Email from Your Flask App",
+            body="Hello! This is a test email from your Flask application."
+        )
+        
+        if success:
+            return jsonify({
+                "status": "success", 
+                "message": "Test email sent successfully!"
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Failed to send email. Check server logs."
+            })
+            
+    except Exception as e:
+        # This will catch any errors and show them in the response
+        return jsonify({
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }), 500
 
 if __name__ == "__main__":
     with app.app_context():
