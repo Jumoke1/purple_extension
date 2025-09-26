@@ -8,7 +8,7 @@ const NewInStore = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  useEffect(() => { 
     fetch("http://127.0.0.1:5002/new_stock")
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch new stock");
@@ -32,7 +32,7 @@ const NewInStore = () => {
       </p>
 
       {loading && <p className="text-center text-gray-500">Loading...</p>}
-      {error && <p className="text-center text-red-500">{error}</p>}
+      {error && <p clas sName="text-center text-red-500">{error}</p>}
         
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 p-6">
          

@@ -10,9 +10,17 @@ function NewOrder() {
 
   const fetchOrders = (page) => {
     setLoading(true);
-    fetch(`http://localhost:5002/orders?page=${page}&per_page=${ordersPerPage}`)
-      .then((res) => res.json())
-      .then((data) => {
+
+    const token = localStorage.getItem("token");
+    fetch(`http://localhost:5002/orders?page=${page}&per_page=${ordersPerPage}`,{
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, // ✅ Attach token here
+          },
+        })
+        .then((res) => res.json())
+        .then((data) => {
         const orderData = data.orders || [];
 
         const formattedOrders = orderData.map((order) => ({

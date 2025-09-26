@@ -70,10 +70,11 @@ const  AddnewProduct = () => {
     const formDataToSend = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
 
-        if ( Array.isArray(value)) {
-            formDataToSend.append(key, JSON.stringify(value));
-            }
-            else if (value !== '') {
+    if (Array.isArray(value)) {
+         value.forEach(item => formDataToSend.append(key, item));
+    }
+
+        else if (value !== '') {
                 formDataToSend.append(key, value);
             }
         })
@@ -81,8 +82,15 @@ const  AddnewProduct = () => {
     
     
         try{
+
+              //Get token from localStorage
+            const token = localStorage.getItem('token');
+
             const response = await fetch('http://localhost:5002/add_product',{
                 method: 'POST',
+                headers:{
+                    "Authorization": `Bearer ${token}`
+                },
                 body: formDataToSend
             });
              const result = await response.json()

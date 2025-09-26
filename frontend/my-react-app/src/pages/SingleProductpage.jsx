@@ -36,6 +36,7 @@ const SingleProductpage = () => {
         return response.json();
       })
       .then((data) => {
+        console.log("Single Product Data:", data);
         setProduct(data);
         setLoading(false);
       })
@@ -86,6 +87,14 @@ const SingleProductpage = () => {
       setMessage(`Only ${product.stock} item(s) available in stock`);
       return;
     }
+    if (!selectedColor){
+       setMessage('please select a color');
+       return;
+    }
+    if (!selectedLength){
+       setMessage('please select a length');
+       return;
+    }
 
     fetch('http://localhost:5002/addto_cart', {
       method: 'POST',
@@ -96,7 +105,9 @@ const SingleProductpage = () => {
       body: JSON.stringify({
         product_id: product.id,
         quantity: count,
-        session_id: getSessionId() // Use session ID from localStorage
+        session_id: getSessionId(), // Use session ID from localStorage
+        selected_color: selectedColor,
+        selected_length: selectedLength
       })
     })
       .then(res => {
@@ -113,6 +124,9 @@ const SingleProductpage = () => {
         setSessionId(data.session_id); // 👈 Update session ID in localStorage
         setCartRefreshKey(prev => prev + 1);  //  Refresh cart drawer
         setIsCartOpen(true);                 // Open cart drawer after success
+
+        setSelectedColor('');
+        setSelectedLength('');
       })
       .catch(err => {
         console.error('Error adding to cart:', err);
@@ -144,11 +158,11 @@ const SingleProductpage = () => {
           <p className="mb-4 text-gray-700 font-semibold text-2xl">₦{product.product_price}</p>
           <p className="text-sm mb-2 text-gray-700">{product.product_description}</p>
           <p className="text-sm text-gray-600">Available stock: {product.stock}</p>
-         <div className="mt-4">
+          <div className="mt-4">
           <span className="font-semibold text-gray-700">Choose Color:</span>
           <div className="flex flex-wrap gap-2 mt-2">
-            {Array.isArray(product.color) ? (
-              product.color.map((c, index) => (
+            {Array.isArray(product?.colors) && product.colors.length > 0 ? (
+              product.colors.map((c, index) => (
                 <button
                   key={index}
                   onClick={() => setSelectedColor(c)}
@@ -162,16 +176,35 @@ const SingleProductpage = () => {
                 </button>
               ))
             ) : (
-              <p className="text-gray-500">{product.color}</p> // fallback if it's not an array
+              <p className="text-gray-500">No colors available</p>
             )}
           </div>
+        </div>
+
+       <div className="flex flex-col items-start mt-6">
+      <span className="mb-1 font-semibold">Length</span>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {Array.isArray(product?.lengths) && product.lengths.length > 0 ? (
+          product.lengths.map((l, index) => (
+            <span
+              key={index}
+              onClick={() => setSelectedLength(l)}
+              className={`px-3 py-1 cursor-pointer rounded border ${
+                selectedLength === l
+                  ? 'bg-purple-700 text-white'
+                  : 'bg-white text-gray-700 border-purple-400'
+            }`}
+          >
+            {l}
+          </span>
+        ))
+      ) : (
+        <p className="text-gray-500">No lengths available</p>
+      )}
+
       </div>
+    </div>
 
-
-          <div className="flex flex-col items-start mt-6">
-            <span className="mb-1 font-semibold">Length</span>
-            <p className="inline-block border border-purple-400 px-2 rounded">{product.length}</p>
-          </div>
 
           {/* Quantity Selector and Add to Cart */}
           <div className="flex items-center space-x-2 mt-20">

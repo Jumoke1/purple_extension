@@ -33,6 +33,12 @@ const CheckOut = () => {
           0
         );
         setAmount(total);
+         console.log('Cart data received:', data.cart);
+          console.log('Cart items with color/length:', data.cart.map(item => ({
+          name: item.product_name,
+          color: item.selected_color,
+          length: item.selected_length
+        })));
       })
       .catch(err => console.error('Error fetching cart:', err));
   }, []);
@@ -66,10 +72,24 @@ const CheckOut = () => {
       items: cartItems.map(item => ({
         product_id: item.product_id || item.id,
         quantity: item.quantity,
-        price: item.product_price  
+        price: item.product_price,
+        selected_color: item.selected_color, 
+        selected_length: item.selected_length
     }))
+       
 
     };
+
+
+    // DEBUG LOG 
+    console.log('Order data being sent:', orderData);
+    console.log('Cart items details:', cartItems.map(item => ({
+      name: item.product_name,
+      available_colors: item.colors,
+      available_lengths: item.lengths,
+      using_color: item.colors && item.colors.length > 0 ? item.colors[0] : 'Default Color',
+      using_length: item.lengths && item.lengths.length > 0 ? item.lengths[0] : 'Default Length'
+    })));
     try {
       //save the order details to the backend
         const orderResponse = await fetch("http://localhost:5002/create_order",{
@@ -84,14 +104,22 @@ const CheckOut = () => {
 
       const createdOrder = await orderResponse.json();
 
+        const orderId = createdOrder.order_id || createdOrder.order?.id;
+    
+        if (!orderId) {
+          throw new Error("Order ID not found in response");
+        }
+
+
       //payment initialization
       const response = await fetch('http://localhost:5002/payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
+          fullname,
           amount: Number(amount),
-          order_id: createdOrder.order.id
+          order_id: orderId
         }),
       });
 

@@ -47,13 +47,9 @@ const handleError = (err) => {
   }
 
   function getSessionId() {
-    const sessionId = localStorage.getItem('session_id');
-    if (sessionId) {
-      return sessionId;
-    } else {
-      return "";
-    }
-  }
+    return localStorage.getItem('session_id') || "";
+}
+
 
   useEffect(() => {
     if (isOpen) {
@@ -74,7 +70,7 @@ const handleError = (err) => {
         })
         .catch((err) => console.error("Error fetching cart:", err));
     }
-  }, [isOpen, refreshTrigger]); // ✅ listens to refreshTrigger
+  }, [isOpen, refreshTrigger]); // listens to refreshTrigger
 
   const totalPrice = cartItems.reduce((sum, item) => {
     return sum + item.quantity * item.product_price;

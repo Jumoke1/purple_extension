@@ -40,6 +40,12 @@ const ContactUs = () => {
 
       const data = await res.json();
       console.log("Complaint submitted:", data);
+
+      setName('');
+      setEmail('');
+      setMessage('');
+      setSubject('');
+      
       alert("Complaint submitted successfully!");
      }catch(error) {
       console.error(error);

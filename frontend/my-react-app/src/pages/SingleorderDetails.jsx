@@ -10,8 +10,15 @@ function SingleOrderDetails() {
   useEffect(() => {
     const fetchOrder = async () => {
       try {
-        const response = await fetch(`http://localhost:5002/orders/${orderId}`);
-        
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:5002/orders/${orderId}`,{
+          method:'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,           
+          }
+      
+        });
         if (!response.ok) {
           throw new Error(`Order not found (status: ${response.status})`);
         }
@@ -35,8 +42,10 @@ function SingleOrderDetails() {
     fetchOrder();
   }, [orderId]);
 
+
   const updateOrderStatus = async(orderId, newStatus)=> {
     try{
+     
       const response = await fetch(`http://localhost:5002/orders/${orderId}/status`, {
         method: 'PUT',
         headers: {
@@ -103,7 +112,19 @@ function SingleOrderDetails() {
               <div className="flex-1">
                 <h3 className="font-medium">{item.product_name}</h3>
                 <p className="text-gray-600">Qty: {item.quantity}</p>
+                {item.selected_color && (
+                  <p className="text-gray-600">
+                    Color: <span className="font-medium">{item.selected_color}</span>
+                  </p>
+                )}
+      
+                {item.selected_length && (
+                  <p className="text-gray-600">
+                    Length: <span className="font-medium">{item.selected_length}</span>
+                  </p>
+                )}
               </div>
+                       
               <div className="text-right">
                 <p>₦{(item.price * item.quantity).toLocaleString()}</p>
               </div>
@@ -113,8 +134,7 @@ function SingleOrderDetails() {
             Total: ₦{order.total.toLocaleString()}
           </div>
         </div>
-
-        {/* Customer Info */}
+              {/* Customer Info */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <h2 className="text-xl font-semibold mb-2">Customer</h2>

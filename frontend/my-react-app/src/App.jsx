@@ -24,6 +24,7 @@ import AboutUs from './pages/AboutUs'
 import SingleorderDetails from './pages/SingleorderDetails'
 import NewOrder from './pages/NewOrders'
 import ClientComplaint from './pages/ClientComplaint'
+import ProtectedPage from './pages/ProtectedPages';
 
 import CartDrawer from './components/CartDrawer'
 
@@ -48,14 +49,13 @@ function App() {
 				{/*Routes without layout */}
 				 <Route path="login" element={<Login/>}/>
 				 <Route path="signup" element={<SignUp/>}/>
-				 <Route path='/addnewproduct'element={<AddnewProduct/>}/>
-				 <Route path='/productmanagement'element={<ProductManagement/>}/>
-				 <Route path='/editproduct/:id'element={<EditProduct/>}/>
+				 <Route path='/addnewproduct'element={<ProtectedPage><AddnewProduct/></ProtectedPage>}/>
+				 <Route path='/productmanagement'element={<ProtectedPage><ProductManagement/></ProtectedPage>}/>
 				 
 
 				  {/* Routes with layout */}
 			    <Route path='/homepage'element={<HomePage/>} />
-					<Route path='/admindashboard' element={<AdminDashboard />} />
+					<Route path='/admindashboard' element={<ProtectedPage><AdminDashboard /></ProtectedPage>} />
 					<Route path='/collections' element={<Collections/>} />
 					<Route path="/salesproduct" element={<SalesProduct />} />
           			<Route path="/newinstock" element={<NewInStore />} />
@@ -66,9 +66,9 @@ function App() {
 					<Route path='/singleproductpage/:id' element={<SingleProductpage/>} />
 					<Route path='/contactus' element={<ContactUs/>} />
 					<Route path='/aboutus' element={<AboutUs/>} />
-					<Route path='/singleorderdetails/:orderId' element={<SingleorderDetails/>} />
+					<Route path='/singleorderdetails/:orderId' element={<ProtectedPage><SingleorderDetails/></ProtectedPage>} />
 					<Route path='/neworder' element={<NewOrder/>} />
-					<Route path='/clientcomplaint' element={<ClientComplaint/>} />
+					<Route path='/clientcomplaint' element={<ProtectedPage><ClientComplaint/></ProtectedPage>} />
 				
           </Route>
 			</Routes>

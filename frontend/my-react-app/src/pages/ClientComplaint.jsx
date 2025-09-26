@@ -10,7 +10,15 @@ function ClientComplaint() {
   useEffect(() => {
     const fetchComplaint = async () => {
       try {
-        const response = await fetch(`http://localhost:5002/complaints`);
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:5002/complaints`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, 
+          },
+        });
+;
         
         if (!response.ok) {
           throw new Error(`Complaint not found (status: ${response.status})`);
